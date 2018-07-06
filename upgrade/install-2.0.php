@@ -24,9 +24,9 @@
  */
 
 if (!defined('_PS_VERSION_'))
-	exit;
+    exit;
 
 function upgrade_module_2_0($object)
 {
-	return ($object->registerHook('actionValidateCustomerAddressForm'));
+    return ($object->registerHook('actionValidateCustomerAddressForm'));
 }
