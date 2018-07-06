@@ -46,8 +46,8 @@ class VatNumber extends TaxManagerModule
 		if ($id_country == 0)
 			$this->warning = $this->l('No default country set.');
 
-		$this->displayName = $this->l('European VAT number');
-		$this->description = $this->l('Enables you to enter the intra-community VAT number when creating the address. You must fill in the company field to allow entering the VAT number.');
+		$this->displayName = $this->l('VAT Exemption Module');
+		$this->description = $this->l('This module adds handling of VAT exemptions for various tax laws.');
 		$this->ps_versions_compliancy = array('min' => '1.6', 'max' => _PS_VERSION_);
 	}
 
