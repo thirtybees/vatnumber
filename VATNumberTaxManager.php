@@ -39,6 +39,6 @@ class VATNumberTaxManager implements TaxManagerInterface
         $tax = new Tax();
         $tax->rate = 0;
 
-        return new TaxCalculator(array($tax));
+        return new TaxCalculator([$tax]);
     }
 }
