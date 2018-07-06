@@ -1,0 +1,8 @@
+
+/translations/*
+!/translations/index.php
+
+/config*.xml
+
+vatnumber-*.zip
+
