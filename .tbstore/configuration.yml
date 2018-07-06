@@ -1,0 +1,20 @@
+module_name: VAT Exemption Module
+compatible_versions: 1.0.0+
+author: thirty bees
+category: billing_invoicing
+tags:
+  - VAT
+  - value-added-tax
+  - VAT exemption
+description_short: This module adds handling of VAT exemptions of various tax laws.
+description: description.md
+images:
+  - image-1.png
+gdpr_compliant: true
+license: AFL
+php_version:
+  - 5.5
+  - 5.6
+  - 7.0
+  - 7.1
+  - 7.2
