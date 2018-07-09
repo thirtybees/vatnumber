@@ -342,19 +342,21 @@ class VatNumber extends TaxManagerModule
         ];
     }
 
+    /**
+     * Note: this hook currently doesn't get triggered anywhere.
+     */
     public function hookActionValidateCustomerAddressForm(&$params)
     {
-        $form = $params['form'];
-        $isValid = true;
+        $fieldCompany = $params['form']->getField('company');
+        $fieldNumber = $params['form']->getField('vat_number');
 
-        if (($vatNumber = $form->getField('vat_number')) && Configuration::get('VATNUMBER_MANAGEMENT') && Configuration::get('VATNUMBER_CHECKING')) {
-            $isAVatNumber = VatNumber::WebServiceCheck($vatNumber->getValue());
-            if (is_array($isAVatNumber) && count($isAVatNumber) > 0) {
-                $vatNumber->addError($isAVatNumber[0]);
-                $isValid = false;
-            }
+        $result = static::validateNumber($fieldCompany->getValue(),
+                                         $fieldNumber->getValue());
+        if (is_string($result)) {
+            $fieldNumber->addError($result);
+            $result = false;
         }
 
-        return $isValid;
+        return $result;
     }
 }
