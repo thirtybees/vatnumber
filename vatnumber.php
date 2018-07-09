@@ -148,8 +148,54 @@ class VatNumber extends TaxManagerModule
         return (((int) $idCountry && array_key_exists(Country::getIsoById($idCountry), self::getPrefixIntracomVAT())) ? 1 : 0);
     }
 
+    /**
+     * Test wether a given number is a valid one. Validation tests largely
+     * depend on the current module configuration. This method works for all
+     * configuration modes.
+     *
+     * @param Address $address The address with the VAT number to verify.
+     *
+     * @return bool|string Boolean true for a valid number. Error string on
+     *                     validation failure or an invalid number.
+     *
+     * @todo As soon as we have a suitable hook system (see comment in
+     *       Address:validateController()), this should become a hook.
+     *
+     * @since 2.1.0
+     */
+    public static function validateNumber(Address &$address)
+    {
+        $result = false;
+
+        if (Configuration::get('VATNUMBER_MANAGEMENT')) {
+            if ($address->company != '') {
+                if (Configuration::get('VATNUMBER_CHECKING')) {
+                    $errors = static::WebServiceCheck($address->vat_number);
+                    if (count($errors)) {
+                        $result = $errors[0];
+                    } else {
+                        $result = true;
+                    }
+                } else {
+                    $result = true;
+                }
+            } else {
+                if ($address->vat_number != '') {
+                    $result = Tools::displayError('VAT number, but no company name given.');
+                } else {
+                    $result = true;
+                }
+            }
+        } else {
+            $result = true;
+        }
+
+        return $result;
+    }
+
     public static function WebServiceCheck($vatNumber)
     {
+        // Retrocompatibility for module version < 2.1.0 (07/2018).
         if (empty($vatNumber)) {
             return [];
         }
@@ -175,8 +221,7 @@ class VatNumber extends TaxManagerModule
                 } else {
                     ++$i;
                 }
-            }
-            else {
+            } else {
                 sleep(1);
             }
         }
