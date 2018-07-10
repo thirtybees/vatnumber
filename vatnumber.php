@@ -230,8 +230,8 @@ class VatNumber extends TaxManagerModule
                 'input' => [
                     [
                         'type'      => 'select',
-                        'label'     => $this->l('Customers\' country'),
-                        'desc'      => $this->l('Filter customers\' country.'),
+                        'label'     => $this->l('Always add VAT for customers from:'),
+                        'desc'      => $this->l('In EU legislation, this should be the country where the business is located, usually your own country.'),
                         'name'      => 'VATNUMBER_COUNTRY',
                         'required'  => false,
                         'default_value' => (int) $this->context->country->id,
@@ -246,7 +246,7 @@ class VatNumber extends TaxManagerModule
                         'label'     => $this->l('Enable checking of the VAT number with the web service'),
                         'name'      => 'VATNUMBER_CHECKING',
                         'is_bool'   => true,
-                        'desc'      => $this->l('The verification by the web service is slow. Enabling this option can slow down your shop.'),
+                        'desc'      => $this->l('Verification by the web service is slow. Enabling it slows down creating or updating an address.'),
                         'values' => [
                             [
                                 'id'    => 'active_on',
