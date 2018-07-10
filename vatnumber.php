@@ -35,14 +35,14 @@ class VatNumber extends TaxManagerModule
         $this->tab = 'billing_invoicing';
         $this->version = '2.0.1';
         $this->author = 'thirty bees';
-        $this->need_instance = 0;
+        $this->need_instance = true;
 
         $this->tax_manager_class = 'VATNumberTaxManager';
 
         $this->bootstrap = true;
         parent::__construct();
-        $idCountry = (int) Configuration::get('VATNUMBER_COUNTRY');
 
+        $idCountry = (int) Configuration::get('VATNUMBER_COUNTRY');
         if ($idCountry == 0) {
             $this->warning = $this->l('No default country set.');
         }
