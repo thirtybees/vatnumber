@@ -190,17 +190,17 @@ class VatNumber extends TaxManagerModule
         $echo = '';
 
         if (Tools::isSubmit('submitVatNumber')) {
-            if (Configuration::updateValue('VATNUMBER_COUNTRY', (int) Tools::getValue('VATNUMBER_COUNTRY'))) {
-                $echo .= $this->displayConfirmation($this->l('Your country has been updated.'));
-            }
-
-            if (Configuration::updateValue('VATNUMBER_CHECKING', (int) Tools::getValue('VATNUMBER_CHECKING'))) {
-                $echo .= ((bool) Tools::getValue('VATNUMBER_CHECKING') ? $this->displayConfirmation($this->l('The check of the VAT number with the WebService is now enabled.')) : $this->displayConfirmation($this->l('The check of the VAT number with the WebService is now disabled.')));
+            if (Configuration::updateValue('VATNUMBER_COUNTRY',
+                                           (int) Tools::getValue('VATNUMBER_COUNTRY'))
+                && Configuration::updateValue('VATNUMBER_CHECKING',
+                                              (bool) Tools::getValue('VATNUMBER_CHECKING'))) {
+                $echo .= $this->displayConfirmation($this->l('Settings updated successfully.'));
+            } else {
+                $echo .= $this->displayError($this->l('Failed to update settings.'));
             }
         }
-        $echo .= $this->renderForm();
 
-        return $echo;
+        return $echo.$this->renderForm();
     }
 
     public function renderForm()
