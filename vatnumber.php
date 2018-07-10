@@ -230,6 +230,10 @@ class VatNumber extends TaxManagerModule
         return [Tools::displayError('VAT number validation service unavailable')];
     }
 
+    /**
+     * @since 1.0.0
+     * @since 2.1.0 Added VATNUMBER_MANUAL handling.
+     */
     public function getContent()
     {
         $echo = '';
@@ -237,6 +241,8 @@ class VatNumber extends TaxManagerModule
         if (Tools::isSubmit('submitVatNumber')) {
             if (Configuration::updateValue('VATNUMBER_COUNTRY',
                                            (int) Tools::getValue('VATNUMBER_COUNTRY'))
+                && Configuration::updateValue('VATNUMBER_MANUAL',
+                                              (bool) Tools::getValue('VATNUMBER_MANUAL'))
                 && Configuration::updateValue('VATNUMBER_CHECKING',
                                               (bool) Tools::getValue('VATNUMBER_CHECKING'))) {
                 $echo .= $this->displayConfirmation($this->l('Settings updated successfully.'));
@@ -248,6 +254,10 @@ class VatNumber extends TaxManagerModule
         return $echo.$this->renderForm();
     }
 
+    /**
+     * @since 1.0.0
+     * @since 2.1.0 Added VATNUMBER_MANUAL part.
+     */
     public function renderForm()
     {
         $countries = Country::getCountries($this->context->language->id);
@@ -284,6 +294,25 @@ class VatNumber extends TaxManagerModule
                             'query'     => $countriesFmt,
                             'id'        => 'id',
                             'name'      => 'name',
+                        ],
+                    ],
+                    [
+                        'type'      => 'switch',
+                        'label'     => $this->l('Allow manual verification'),
+                        'name'      => 'VATNUMBER_MANUAL',
+                        'is_bool'   => true,
+                        'desc'      => $this->l('Enabling this adds a simple checkbox for VAT exemptions. Use this to allow VAT exemptions not related to a VAT number. You\'ll recognize a checked box by reading \''.static::VAT_EXEMPTION_FLAG.'\' in back office in the VAT number field in Customers -> Addresses.'),
+                        'values' => [
+                            [
+                                'id'    => 'active_on',
+                                'value' => 1,
+                                'label' => $this->l('Enabled')
+                            ],
+                            [
+                                'id'    => 'active_off',
+                                'value' => 0,
+                                'label' => $this->l('Disabled')
+                            ],
                         ],
                     ],
                     [
@@ -334,11 +363,19 @@ class VatNumber extends TaxManagerModule
         return $helper->generateForm([$fieldsForm]);
     }
 
+    /**
+     * @since 1.0.0
+     * @since 2.1.0 Added VATNUMBER_MANUAL handling.
+     */
     public function getConfigFieldsValues()
     {
         return [
-            'VATNUMBER_COUNTRY'   => Tools::getValue('VATNUMBER_COUNTRY', Configuration::get('VATNUMBER_COUNTRY')),
-            'VATNUMBER_CHECKING'  => Tools::getValue('VATNUMBER_CHECKING', Configuration::get('VATNUMBER_CHECKING')),
+            'VATNUMBER_COUNTRY'   =>
+                Tools::getValue('VATNUMBER_COUNTRY', Configuration::get('VATNUMBER_COUNTRY')),
+            'VATNUMBER_MANUAL'    =>
+                Tools::getValue('VATNUMBER_MANUAL', Configuration::get('VATNUMBER_MANUAL')),
+            'VATNUMBER_CHECKING'  =>
+                Tools::getValue('VATNUMBER_CHECKING', Configuration::get('VATNUMBER_CHECKING')),
         ];
     }
 
