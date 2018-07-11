@@ -167,7 +167,8 @@ class VatNumber extends TaxManagerModule
     {
         $result = false;
 
-        if (Configuration::get('VATNUMBER_MANAGEMENT')) {
+        if (Configuration::get('VATNUMBER_MANAGEMENT')
+            && !Configuration::get('VATNUMBER_MANUAL')) {
             if ($address->company != '') {
                 if (Configuration::get('VATNUMBER_CHECKING')) {
                     $errors = static::WebServiceCheck($address->vat_number);
