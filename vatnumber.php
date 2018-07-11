@@ -381,6 +381,34 @@ class VatNumber extends TaxManagerModule
     }
 
     /**
+     * Assign template vars related to VAT number. Works for all configuration
+     * modes.
+     *
+     * @param string $context Context.
+     *
+     * @todo As soon as we have a suitable hook system (see comment in
+     *       Address:validateController()), this should become a hook.
+     *
+     * @since 2.1.0
+     */
+    public static function assignTemplateVars($context)
+    {
+        $vatDisplay = 0;
+        if (Configuration::get('VATNUMBER_MANAGEMENT')) {
+            if (static::isApplicable((int) Tools::getCountry())) {
+                $vatDisplay = 2;
+            } else {
+                $vatDisplay = 1;
+            }
+        }
+
+        $context->smarty->assign([
+            'vatnumber_ajax_call' => true,
+            'vat_display'         => $vatDisplay,
+        ]);
+    }
+
+    /**
      * Note: this hook currently doesn't get triggered anywhere.
      */
     public function hookActionValidateCustomerAddressForm(&$params)
