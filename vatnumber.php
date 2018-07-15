@@ -29,6 +29,8 @@ if (!defined('_TB_VERSION_')) {
 
 class VatNumber extends TaxManagerModule
 {
+    const VAT_EXEMPTION_FLAG = 'vatExemption';
+
     public function __construct()
     {
         $this->name = 'vatnumber';
@@ -166,6 +168,19 @@ class VatNumber extends TaxManagerModule
     public static function validateNumber(Address &$address)
     {
         $result = false;
+
+        /*
+         * Handle the VAT exemption flag. In case we also have a VAT number,
+         * we use that. Else we set vat_number to a standard value.
+         *
+         * Using this standard value avoids adding a boolean field
+         * 'vat_exemption' to the Address class, keeping compatibility with
+         * older versions.
+         */
+        if (Tools::getValue('vat_exemption')
+            && $address->vat_number == '') {
+            $address->vat_number = static::VAT_EXEMPTION_FLAG;
+        }
 
         if (Configuration::get('VATNUMBER_MANAGEMENT')
             && !Configuration::get('VATNUMBER_MANUAL')) {
@@ -395,7 +410,9 @@ class VatNumber extends TaxManagerModule
     {
         $vatDisplay = 0;
         if (Configuration::get('VATNUMBER_MANAGEMENT')) {
-            if (static::isApplicable((int) Tools::getCountry())) {
+            if (Configuration::get('VATNUMBER_MANUAL')) {
+                $vatDisplay = 3;
+            } elseif (static::isApplicable((int) Tools::getCountry())) {
                 $vatDisplay = 2;
             } else {
                 $vatDisplay = 1;
@@ -406,6 +423,33 @@ class VatNumber extends TaxManagerModule
             'vatnumber_ajax_call' => true,
             'vat_display'         => $vatDisplay,
         ]);
+    }
+
+    /**
+     * Adjust an address for layout. This module derives property
+     * 'vat_exemption' from other properties, see comment in validateNumber().
+     *
+     * @param string $address Alias of the address to display. May be different
+     *                        on return.
+     *
+     * @todo When the updater has learned to do database upgrades it's likely
+     *       we want to store the 'vat_exemption' flag directly in the
+     *       database, making this method obsolete. This would also make all
+     *       the code for finding and calling this method in core obsolete.
+     * @todo As soon as we have a suitable hook system (see comment in
+     *       Address:validateController()), this should become a hook.
+     *
+     * @since 2.1.0
+     */
+    public static function adjustAddressForLayout(&$address)
+    {
+        // Don't display the VAT exemption text.
+        if (Configuration::get('VATNUMBER_MANAGEMENT')
+            && Configuration::get('VATNUMBER_MANUAL')
+            && $address->vat_number === static::VAT_EXEMPTION_FLAG) {
+            $address->vat_exemption = true;
+            $address->vat_number = '';
+        }
     }
 
     /**
