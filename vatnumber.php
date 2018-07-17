@@ -58,8 +58,7 @@ class VatNumber extends TaxManagerModule
     public function install()
     {
         return parent::install()
-               && Configuration::updateValue('VATNUMBER_MANAGEMENT', 1)
-               && $this->registerHook('actionValidateCustomerAddressForm');
+               && Configuration::updateValue('VATNUMBER_MANAGEMENT', 1);
     }
 
     public function uninstall()
