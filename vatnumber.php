@@ -64,7 +64,11 @@ class VatNumber extends TaxManagerModule
 
     public function uninstall()
     {
-        return (parent::uninstall() && Configuration::updateValue('VATNUMBER_MANAGEMENT', 0));
+        return parent::uninstall()
+               && Configuration::deleteByName('VATNUMBER_CHECKING')
+               && Configuration::deleteByName('VATNUMBER_MANUAL')
+               && Configuration::deleteByName('VATNUMBER_COUNTRY')
+               && Configuration::deleteByName('VATNUMBER_MANAGEMENT');
     }
 
     public function enable($forceAll = false)
