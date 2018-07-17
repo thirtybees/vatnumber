@@ -44,8 +44,8 @@ class VatNumber extends TaxManagerModule
         $this->bootstrap = true;
         parent::__construct();
 
-        $idCountry = (int) Configuration::get('VATNUMBER_COUNTRY');
-        if ($idCountry == 0) {
+        if (!Configuration::get('VATNUMBER_MANUAL')
+            && (int) Configuration::get('VATNUMBER_COUNTRY') === 0) {
             $this->warning = $this->l('No default country set.');
         }
 
