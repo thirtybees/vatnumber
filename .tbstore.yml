@@ -1,7 +1,7 @@
 module_name: VAT Exemption Module
 compatible_versions: 1.0.0+
 author: thirty bees
-category: billing_invoicing
+category: administration
 tags:
   - VAT
   - value-added-tax
