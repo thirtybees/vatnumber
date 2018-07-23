@@ -433,7 +433,7 @@ class VatNumber extends TaxManagerModule
      * 'vat_exemption' from other properties, see comment in validateNumber().
      *
      * @param string $address Alias of the address to display. May be different
-     *                        on return.
+     *                        on return. Can be NULL for new addresses.
      *
      * @todo When the updater has learned to do database upgrades it's likely
      *       we want to store the 'vat_exemption' flag directly in the
@@ -449,6 +449,7 @@ class VatNumber extends TaxManagerModule
         // Don't display the VAT exemption text.
         if (Configuration::get('VATNUMBER_MANAGEMENT')
             && Configuration::get('VATNUMBER_MANUAL')
+            && is_object($address)
             && $address->vat_number === static::VAT_EXEMPTION_FLAG) {
             $address->vat_exemption = true;
             $address->vat_number = '';
