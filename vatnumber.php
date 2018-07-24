@@ -432,8 +432,8 @@ class VatNumber extends TaxManagerModule
      * Adjust an address for layout. This module derives property
      * 'vat_exemption' from other properties, see comment in validateNumber().
      *
-     * @param string $address Alias of the address to display. May be different
-     *                        on return. Can be NULL for new addresses.
+     * @param Address $address Alias of the address to display. May be different
+     *                         on return. Can be NULL for a new address.
      *
      * @todo When the updater has learned to do database upgrades it's likely
      *       we want to store the 'vat_exemption' flag directly in the
