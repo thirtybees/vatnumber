@@ -6,6 +6,7 @@ tags:
   - VAT
   - value-added-tax
   - VAT exemption
+  - vatnumber
 description_short: This module adds handling of VAT exemptions of various tax laws.
 description: description.md
 images:
