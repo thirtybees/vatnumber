@@ -51,7 +51,7 @@ class VatNumber extends TaxManagerModule
 
         $this->displayName = $this->l('VAT Exemption Module');
         $this->description = $this->l('This module adds handling of VAT exemptions for various tax laws.');
-        $this->tb_versions_compliancy = '> 1.0.0';
+        $this->tb_versions_compliancy = '>= 1.0.8';
         $this->ps_versions_compliancy = ['min' => '1.6', 'max' => _PS_VERSION_];
     }
 
@@ -305,7 +305,7 @@ class VatNumber extends TaxManagerModule
                     [
                         'type'      => 'select',
                         'label'     => $this->l('Always add VAT for customers from:'),
-                        'desc'      => $this->l('In EU legislation, this should be the country where the business is located, usually your own country.'),
+                        'desc'      => $this->l('In EU legislation, this should be the country where the business is located, usually your own country. Ignored for manual VAT exemption requests.'),
                         'name'      => 'VATNUMBER_COUNTRY',
                         'required'  => false,
                         'default_value' => (int) $this->context->country->id,
