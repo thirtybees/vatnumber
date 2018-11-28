@@ -23,13 +23,15 @@
  * PrestaShop is an internationally registered trademark of PrestaShop SA.
  */
 
+require_once __DIR__.'/vatnumber.php';
+
 class VATNumberTaxManager implements TaxManagerInterface
 {
     public static function isAvailableForThisAddress(Address $address)
     {
         return (!empty($address->vat_number)
             && ($address->id_country != Configuration::get('VATNUMBER_COUNTRY')
-                || $address->vat_number === 'vatExemption')
+                || $address->vat_number === VatNumber::VAT_EXEMPTION_FLAG)
             && Configuration::get('VATNUMBER_MANAGEMENT')
         );
     }
