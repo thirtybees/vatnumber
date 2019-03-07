@@ -225,7 +225,10 @@ class VatNumber extends TaxManagerModule
             return [ Tools::displayError('Invalid VAT number') ];
         }
         $vat = Tools::substr($vatNumber, 2);
-        $url = 'http://ec.europa.eu/taxation_customs/vies/viesquer.do?ms='.urlencode($prefix).'&iso='.urlencode($prefix).'&vat='.urlencode($vat);
+        $url = 'http://ec.europa.eu/taxation_customs/vies/vatResponse.html'
+               .'?locale=EN'
+               .'&memberStateCode='.urlencode($prefix)
+               .'&number='.urlencode($vat);
         @ini_set('default_socket_timeout', 2);
         for ($i = 0; $i < 3; $i++) {
             if ($pageRes = Tools::file_get_contents($url)) {
