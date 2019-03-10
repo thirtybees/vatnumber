@@ -228,7 +228,8 @@ class VatNumber extends TaxManagerModule
         $url = 'http://ec.europa.eu/taxation_customs/vies/vatResponse.html'
                .'?locale=EN'
                .'&memberStateCode='.urlencode($prefix)
-               .'&number='.urlencode($vat);
+               .'&number='.urlencode($vat)
+               .'&traderName=';
         @ini_set('default_socket_timeout', 2);
         for ($i = 0; $i < 3; $i++) {
             if ($pageRes = Tools::file_get_contents($url)) {
