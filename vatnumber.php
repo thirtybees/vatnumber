@@ -23,6 +23,8 @@
  * PrestaShop is an internationally registered trademark of PrestaShop SA.
  */
 
+use \GuzzleHttp\Exception\RequestException;
+
 if (!defined('_TB_VERSION_')) {
     exit;
 }
@@ -230,38 +232,167 @@ class VatNumber extends TaxManagerModule
             return [];
         }
 
-        $vatNumber = str_replace(' ', '', $vatNumber);
-        $prefix = Tools::substr($vatNumber, 0, 2);
-        if (array_search($prefix, self::getPrefixIntracomVAT()) === false) {
-            return [ Tools::displayError('Invalid VAT number') ];
+        $countryCode = substr($vatNumber, 0, 2);
+        $vatNumber = substr(str_replace(' ', '', $vatNumber), 2);
+
+        /**
+         * PHP's SoapClient ...
+         *
+         *  - can parse the WSDL service description,
+         *  - can form a valid request,
+         *  - can't process such a request,
+         *  - means an additional installation dependency.
+         *
+         * PHP's SimpleXMLElement ...
+         *
+         *  - can't form a valid request,
+         *  - can't parse a response.
+         *
+         * With this in mind, the following was re-engineered. Service
+         * description is in the WSDL file at
+         *
+         *   http://ec.europa.eu/taxation_customs/vies/checkVatService.wsdl
+         *
+         * A request looks like:
+         *
+         *   <?xml version="1.0" encoding="UTF-8"?>
+         *   <SOAP-ENV:Envelope
+         *     xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+         *     xmlns:ns1="urn:ec.europa.eu:taxud:vies:services:checkVat:types"
+         *   >
+         *     <SOAP-ENV:Body>
+         *       <ns1:checkVat>
+         *         <ns1:countryCode>DE</ns1:countryCode>
+         *         <ns1:vatNumber>171017618</ns1:vatNumber>
+         *       </ns1:checkVat>
+         *     </SOAP-ENV:Body>
+         *   </SOAP-ENV:Envelope>
+         *
+         * Response is described as
+         *
+         *   struct checkVatResponse {
+         *     string countryCode;
+         *     string vatNumber;
+         *     date requestDate;
+         *     boolean valid;
+         *     string name;
+         *     string address;
+         *   }
+         *
+         * A response to a successful request looks like:
+         *
+         *   <soap:Envelope
+         *     xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+         *   >
+         *     <soap:Body>
+         *       <checkVatResponse
+         *         xmlns="urn:ec.europa.eu:taxud:vies:services:checkVat:types"
+         *       >
+         *         <countryCode>DE</countryCode>
+         *         <vatNumber>171017618</vatNumber>
+         *         <requestDate>2019-03-11+01:00</requestDate>
+         *         <valid>true</valid>
+         *         <name>---</name>
+         *         <address>---</address>
+         *       </checkVatResponse>
+         *     </soap:Body>
+         *   </soap:Envelope>'
+         *
+         * A response to a failed request looks like:
+         *
+         *   <soap:Envelope
+         *     xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+         *   >
+         *     <soap:Body>
+         *       <soap:Fault>
+         *         <faultcode>soap:Server</faultcode>
+         *         <faultstring>SERVICE_UNAVAILABLE</faultstring>
+         *       </soap:Fault>
+         *     </soap:Body>
+         *   </soap:Envelope>
+         *
+         * Other error messages:
+         *
+         *  - INVALID_INPUT: The provided CountryCode is invalid or the VAT
+         *    number is empty;
+         *  - GLOBAL_MAX_CONCURRENT_REQ: Your Request for VAT validation has
+         *    not been processed; the maximum number of concurrent requests has
+         *    been reached. [...] Please try again later.
+         *  - MS_MAX_CONCURRENT_REQ: [about the same].
+         *  - SERVICE_UNAVAILABLE: an error was encountered either at the
+         *    network level or the Web application level, try again later;
+         *  - MS_UNAVAILABLE: The application at the Member State is not
+         *    replying or not available [...], try again later.
+         *  - TIMEOUT: The application did not receive a reply within the
+         *    allocated time period, try again later.
+         */
+
+        $response = [
+            // valid response
+            //'countryCode' => null,
+            //'vatNumber'   => null,
+            //'requestDate' => null,
+            'valid'       => null,
+            //'name'        => null,
+            //'address'     => null,
+            // error report
+            'faultstring' => null,
+        ];
+
+        $body = false;
+        $guzzle = new \GuzzleHttp\Client([
+            'base_uri'    => 'http://ec.europa.eu/taxation_customs/vies/',
+            'timeout'     => 20,
+            'headers'     => [
+                'Content-Type' => 'application/soap+xml; charset=UTF-8',
+            ],
+        ]);
+
+        // VIES doesn't like too many newlines. Assemble the string to get
+        // some code formatting anyways.
+        $postBody = '<?xml version="1.0" encoding="UTF-8"?>'
+            .'<SOAP-ENV:Envelope'
+              .' xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"'
+              .' xmlns:ns1="urn:ec.europa.eu:taxud:vies:services:checkVat:types"'
+            .'>'
+              .'<SOAP-ENV:Body>'
+                .'<ns1:checkVat>'
+                  .'<ns1:countryCode>'.$countryCode.'</ns1:countryCode>'
+                  .'<ns1:vatNumber>'.$vatNumber.'</ns1:vatNumber>'
+                .'</ns1:checkVat>'
+              .'</SOAP-ENV:Body>'
+            .'</SOAP-ENV:Envelope>';
+
+        try {
+            $body = $guzzle->post('services/checkVatService', [
+                'body'  => $postBody,
+            ])->getBody()->getContents();
+        } catch (RequestException $e) {
+            $body = '';
+            $response['faultstring'] = $e->getMessage();
         }
-        $vat = Tools::substr($vatNumber, 2);
-        $url = 'http://ec.europa.eu/taxation_customs/vies/vatResponse.html'
-               .'?locale=EN'
-               .'&memberStateCode='.urlencode($prefix)
-               .'&number='.urlencode($vat)
-               .'&traderName=';
-        @ini_set('default_socket_timeout', 2);
-        for ($i = 0; $i < 3; $i++) {
-            if ($pageRes = Tools::file_get_contents($url)) {
-                if (preg_match('/invalid VAT number/i', $pageRes)) {
-                    @ini_restore('default_socket_timeout');
 
-                    return [Tools::displayError('VAT number not found')];
-                } elseif (preg_match('/valid VAT number/i', $pageRes)) {
-                    @ini_restore('default_socket_timeout');
-
-                    return [];
-                } else {
-                    ++$i;
-                }
-            } else {
-                sleep(1);
+        // Unfortunately, SimpleXMLElement can't parse the response. Do it
+        // 'by hand', using regular expressions.
+        foreach ($response as $key => $value) {
+            $preg = '/<'.$key.'>(.*)<\/'.$key.'>/';
+            if (preg_match($preg, $body, $matches)) {
+                $response[$key] = $matches[1];
             }
         }
-        @ini_restore('default_socket_timeout');
 
-        return [Tools::displayError('VAT number validation service unavailable')];
+        if ($response['faultstring'] === 'INVALID_INPUT') {
+            return [Tools::displayError('Malformed VAT number.')];
+        } elseif ($response['faultstring']) {
+            return [Tools::displayError(sprintf(
+                'VAT number validation service out of order (%s).',
+                $response['faultstring']
+            ))];
+        } elseif ($response['valid'] !== 'true') {
+            return [Tools::displayError('VAT number not registered at your tax authorities.')];
+        }
+
+        return [];
     }
 
     /**
