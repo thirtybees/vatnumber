@@ -212,6 +212,17 @@ class VatNumber extends TaxManagerModule
         return $result;
     }
 
+    /**
+     * Validate a VAT number using the EC's web service.
+     *
+     * @param string $vatNumber The VAT number, including country code.
+     *
+     * @return array Error messages. An empty array means the given number is a
+     *               valid, registered VAT number.
+     *
+     * @since 1.0.0
+     *
+     */
     public static function WebServiceCheck($vatNumber)
     {
         // Retrocompatibility for module version < 2.1.0 (07/2018).
