@@ -384,10 +384,21 @@ class VatNumber extends TaxManagerModule
         if ($response['faultstring'] === 'INVALID_INPUT') {
             return [Tools::displayError('Malformed VAT number.')];
         } elseif ($response['faultstring']) {
-            return [Tools::displayError(sprintf(
-                'VAT number validation service out of order (%s).',
+            /**
+             * A web service failure. Service failures stop customers from
+             * completing an order (unless they accept to pay VAT), so
+             * accepting such a VAT number, but also logging it as being
+             * unvalidated is probably the best we can do to minimize
+             * disruption of the customer.
+             *
+             * Logger can also send email on new log entries.
+             */
+            $message = sprintf(
+                'VAT number %s%s could not get validated due to a validation web service outage (%s).',
+                $countryCode, $vatNumber,
                 $response['faultstring']
-            ))];
+            );
+            Logger::addLog($message, 4);
         } elseif ($response['valid'] !== 'true') {
             return [Tools::displayError('VAT number not registered at your tax authorities.')];
         }
@@ -482,10 +493,10 @@ class VatNumber extends TaxManagerModule
                     ],
                     [
                         'type'      => 'switch',
-                        'label'     => $this->l('Enable checking of the VAT number with the web service'),
+                        'label'     => $this->l('Check VAT number automatically'),
                         'name'      => 'VATNUMBER_CHECKING',
                         'is_bool'   => true,
-                        'desc'      => $this->l('Verification by the web service is slow. Enabling it slows down creating or updating an address.'),
+                        'desc'      => $this->l('This uses the official web service of the European Community. On web service outages (they have been seen quite frequently), VAT numbers get accepted anyways to not disrupt the customer. Such events get logged to allow you to verify the number manually. If you also want to receive email on such events, set \'Minimum severity level\' in Advanced Parameters -> Logs to 4 or lower.'),
                         'values' => [
                             [
                                 'id'    => 'active_on',
