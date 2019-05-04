@@ -54,6 +54,7 @@ class VatNumber extends TaxManagerModule
         $this->displayName = $this->l('VAT Exemption Module');
         $this->description = $this->l('This module adds handling of VAT exemptions for various tax laws.');
         $this->tb_versions_compliancy = '>= 1.0.8';
+        $this->tb_min_version = '1.0.8';
         $this->ps_versions_compliancy = ['min' => '1.6', 'max' => _PS_VERSION_];
     }
 
