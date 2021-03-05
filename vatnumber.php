@@ -118,8 +118,6 @@ class VatNumber extends TaxManagerModule
             //Spain
             'SE' => 'SE',
             //Sweden
-            'GB' => 'GB',
-            //United Kingdom
             'CY' => 'CY',
             //Cyprus
             'EE' => 'EE',
