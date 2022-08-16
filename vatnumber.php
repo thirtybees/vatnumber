@@ -343,7 +343,7 @@ class VatNumber extends TaxManagerModule
             'base_uri'    => 'http://ec.europa.eu/taxation_customs/vies/',
             'timeout'     => 20,
             'headers'     => [
-                'Content-Type' => 'application/soap+xml; charset=UTF-8',
+                'Content-Type' => 'text/xml; charset=UTF-8',
             ],
         ]);
 
