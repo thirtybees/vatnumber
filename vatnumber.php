@@ -219,8 +219,6 @@ class VatNumber extends TaxManagerModule
      */
     public static function validateNumber(Address &$address)
     {
-        $result = false;
-
         /*
          * Handle the VAT exemption flag. In case we also have a VAT number,
          * we use that. Else we set vat_number to a standard value.
@@ -386,7 +384,6 @@ class VatNumber extends TaxManagerModule
             'faultstring' => null,
         ];
 
-        $body = false;
         $guzzle = new \GuzzleHttp\Client([
             'base_uri'    => 'http://ec.europa.eu/taxation_customs/vies/',
             'timeout'     => 20,
@@ -671,22 +668,4 @@ class VatNumber extends TaxManagerModule
         }
     }
 
-    /**
-     * Note: this hook currently doesn't get triggered anywhere.
-     * @throws PrestaShopException
-     */
-    public function hookActionValidateCustomerAddressForm(&$params)
-    {
-        $fieldCompany = $params['form']->getField('company');
-        $fieldNumber = $params['form']->getField('vat_number');
-
-        $result = static::validateNumber($fieldCompany->getValue(),
-                                         $fieldNumber->getValue());
-        if (is_string($result)) {
-            $fieldNumber->addError($result);
-            $result = false;
-        }
-
-        return $result;
-    }
 }
