@@ -23,8 +23,6 @@
  * PrestaShop is an internationally registered trademark of PrestaShop SA.
  */
 
-use GuzzleHttp\Exception\RequestException;
-
 if (!defined('_TB_VERSION_')) {
     exit;
 }
@@ -267,187 +265,50 @@ class VatNumber extends TaxManagerModule
      * @return array Error messages. An empty array means the given number is a
      *               valid, registered VAT number.
      *
-     * @throws PrestaShopException
      * @since 1.0.0
      */
     public static function WebServiceCheck($vatNumber)
     {
-        // Retrocompatibility for module version < 2.1.0 (07/2018).
-        if (empty($vatNumber)) {
-            return [];
+        try {
+            if (empty($vatNumber) || static::checkVat($vatNumber)) {
+                return [];
+            } else {
+                return [Tools::displayError('VAT number not registered at your tax authorities.')];
+            }
+        } catch (Exception $e) {
+            return [$e->getMessage()];
+        }
+    }
+
+    /**
+     * @param string $vatNumber
+     * @return false | array
+     * @throws PrestaShopException
+     * @throws SoapFault
+     */
+    protected static function checkVat($vatNumber)
+    {
+        if (! $vatNumber) {
+            throw new PrestaShopException("Empty VAT number");
+        }
+
+        if (! extension_loaded('soap')) {
+            throw new PrestaShopException(Tools::displayError('PHP soap extension not loaded'));
         }
 
         $countryCode = substr($vatNumber, 0, 2);
         $vatNumber = substr(str_replace(' ', '', $vatNumber), 2);
-
-        /**
-         * PHP's SoapClient ...
-         *
-         *  - can parse the WSDL service description,
-         *  - can form a valid request,
-         *  - can't process such a request,
-         *  - means an additional installation dependency.
-         *
-         * PHP's SimpleXMLElement ...
-         *
-         *  - can't form a valid request,
-         *  - can't parse a response.
-         *
-         * With this in mind, the following was re-engineered. Service
-         * description is in the WSDL file at
-         *
-         *   http://ec.europa.eu/taxation_customs/vies/checkVatService.wsdl
-         *
-         * A request looks like:
-         *
-         *   <?xml version="1.0" encoding="UTF-8"?>
-         *   <SOAP-ENV:Envelope
-         *     xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
-         *     xmlns:ns1="urn:ec.europa.eu:taxud:vies:services:checkVat:types"
-         *   >
-         *     <SOAP-ENV:Body>
-         *       <ns1:checkVat>
-         *         <ns1:countryCode>DE</ns1:countryCode>
-         *         <ns1:vatNumber>171017618</ns1:vatNumber>
-         *       </ns1:checkVat>
-         *     </SOAP-ENV:Body>
-         *   </SOAP-ENV:Envelope>
-         *
-         * Response is described as
-         *
-         *   struct checkVatResponse {
-         *     string countryCode;
-         *     string vatNumber;
-         *     date requestDate;
-         *     boolean valid;
-         *     string name;
-         *     string address;
-         *   }
-         *
-         * A response to a successful request looks like:
-         *
-         *   <soap:Envelope
-         *     xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
-         *   >
-         *     <soap:Body>
-         *       <checkVatResponse
-         *         xmlns="urn:ec.europa.eu:taxud:vies:services:checkVat:types"
-         *       >
-         *         <countryCode>DE</countryCode>
-         *         <vatNumber>171017618</vatNumber>
-         *         <requestDate>2019-03-11+01:00</requestDate>
-         *         <valid>true</valid>
-         *         <name>---</name>
-         *         <address>---</address>
-         *       </checkVatResponse>
-         *     </soap:Body>
-         *   </soap:Envelope>'
-         *
-         * A response to a failed request looks like:
-         *
-         *   <soap:Envelope
-         *     xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
-         *   >
-         *     <soap:Body>
-         *       <soap:Fault>
-         *         <faultcode>soap:Server</faultcode>
-         *         <faultstring>SERVICE_UNAVAILABLE</faultstring>
-         *       </soap:Fault>
-         *     </soap:Body>
-         *   </soap:Envelope>
-         *
-         * Other error messages:
-         *
-         *  - INVALID_INPUT: The provided CountryCode is invalid or the VAT
-         *    number is empty;
-         *  - GLOBAL_MAX_CONCURRENT_REQ: Your Request for VAT validation has
-         *    not been processed; the maximum number of concurrent requests has
-         *    been reached. [...] Please try again later.
-         *  - MS_MAX_CONCURRENT_REQ: [about the same].
-         *  - SERVICE_UNAVAILABLE: an error was encountered either at the
-         *    network level or the Web application level, try again later;
-         *  - MS_UNAVAILABLE: The application at the Member State is not
-         *    replying or not available [...], try again later.
-         *  - TIMEOUT: The application did not receive a reply within the
-         *    allocated time period, try again later.
-         */
-
-        $response = [
-            // valid response
-            //'countryCode' => null,
-            //'vatNumber'   => null,
-            //'requestDate' => null,
-            'valid'       => null,
-            //'name'        => null,
-            //'address'     => null,
-            // error report
-            'faultstring' => null,
-        ];
-
-        $guzzle = new \GuzzleHttp\Client([
-            'base_uri'    => 'http://ec.europa.eu/taxation_customs/vies/',
-            'timeout'     => 20,
-            'headers'     => [
-                'Content-Type' => 'text/xml; charset=UTF-8',
-            ],
+        $webService = new SoapClient("https://ec.europa.eu/taxation_customs/vies/checkVatService.wsdl");
+        /** @noinspection PhpUndefinedMethodInspection */
+        $response = $webService->checkVat([
+            'countryCode' => $countryCode,
+            'vatNumber' => $vatNumber
         ]);
-
-        // VIES doesn't like too many newlines. Assemble the string to get
-        // some code formatting anyways.
-        $postBody = '<?xml version="1.0" encoding="UTF-8"?>'
-            .'<SOAP-ENV:Envelope'
-              .' xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"'
-              .' xmlns:ns1="urn:ec.europa.eu:taxud:vies:services:checkVat:types"'
-            .'>'
-              .'<SOAP-ENV:Body>'
-                .'<ns1:checkVat>'
-                  .'<ns1:countryCode>'.$countryCode.'</ns1:countryCode>'
-                  .'<ns1:vatNumber>'.$vatNumber.'</ns1:vatNumber>'
-                .'</ns1:checkVat>'
-              .'</SOAP-ENV:Body>'
-            .'</SOAP-ENV:Envelope>';
-
-        try {
-            $body = $guzzle->post('services/checkVatService', [
-                'body'  => $postBody,
-            ])->getBody()->getContents();
-        } catch (RequestException $e) {
-            $body = '';
-            $response['faultstring'] = $e->getMessage();
+        if ($response->valid) {
+            return (array)$response;
+        } else {
+            return false;
         }
-
-        // Unfortunately, SimpleXMLElement can't parse the response. Do it
-        // 'by hand', using regular expressions.
-        foreach ($response as $key => $value) {
-            $preg = '/<'.$key.'>(.*)<\/'.$key.'>/';
-            if (preg_match($preg, $body, $matches)) {
-                $response[$key] = $matches[1];
-            }
-        }
-
-        if ($response['faultstring'] === 'INVALID_INPUT') {
-            return [Tools::displayError('Malformed VAT number.')];
-        } elseif ($response['faultstring']) {
-            /**
-             * A web service failure. Service failures stop customers from
-             * completing an order (unless they accept to pay VAT), so
-             * accepting such a VAT number, but also logging it as being
-             * unvalidated is probably the best we can do to minimize
-             * disruption of the customer.
-             *
-             * Logger can also send email on new log entries.
-             */
-            $message = sprintf(
-                'VAT number %s%s could not get validated due to a validation web service outage (%s).',
-                $countryCode, $vatNumber,
-                $response['faultstring']
-            );
-            Logger::addLog($message, 4);
-        } elseif ($response['valid'] !== 'true') {
-            return [Tools::displayError('VAT number not registered at your tax authorities.')];
-        }
-
-        return [];
     }
 
     /**
@@ -577,13 +438,8 @@ class VatNumber extends TaxManagerModule
                         'label'     => $this->l('VAT number'),
                         'name'      => 'CHECK_VATNUMBER',
                         'is_bool'   => true,
-                        'desc'      => $this->l('VAT number including country prefix.'),
-                    ],
-                    [
-                        'type' => 'html',
-                        'name' => 'CHECK_RESULT',
-                        'html_content' => $this->getCheckResult(),
-                    ],
+                        'desc'      => $this->l('VAT number including country prefix.') . $this->getCheckResult(),
+                    ]
                 ],
                 'submit' => [
                     'title' => $this->l('Check'),
@@ -704,21 +560,23 @@ class VatNumber extends TaxManagerModule
             $vatnumber = Tools::getValue('CHECK_VATNUMBER');
             $prefix = strtoupper(substr($vatnumber, 0, 2));
             if (!$prefix || !array_key_exists($prefix, static::getPrefixIntracomVAT())) {
-                return '<div class="alert alert-danger">'.Tools::displayError("Invalid vat number prefix").'</div>';
+                return '<p class="alert alert-danger">'.Tools::displayError("Invalid vat number prefix").'</p>';
             }
             try {
-                $res = $this->WebServiceCheck($vatnumber);
-                if (count($res) === 0) {
-                    return '<div class="alert alert-success">'.sprintf($this->l('%s is valid VAT number'), $vatnumber).'<div>';
-                } else {
-                    $ret = "";
-                    foreach ($res as $errorMessage) {
-                        $ret .=  '<div class="alert alert-danger">' . Tools::safeOutput($errorMessage) . '</div>';
+                $res = $this->checkVat($vatnumber);
+                if ($res) {
+                    $ret = '<p class="alert alert-success">'.sprintf($this->l('%s is a valid VAT number'), $vatnumber).'<p>';
+                    $ret .= '<p class="well">';
+                    foreach ($res as $key => $value) {
+                        $ret .= "<b>".Tools::safeOutput($key).":</b>&nbsp;".Tools::safeOutput($value)."<br/>";
                     }
+                    $ret .= '</p>';
                     return $ret;
+                } else {
+                    return '<p class="alert alert-warning">'.sprintf($this->l('%s is NOT a valid VAT number'), $vatnumber).'</p>';
                 }
             } catch (Exception $e) {
-                return '<div class="alert alert-danger">'.Tools::safeOutput(sprintf(Tools::displayError("Exception: %s"), "$e")).'</div>';
+                return '<p class="alert alert-danger">'.Tools::safeOutput($e->getMessage()).'</p>';
             }
         }
         return '';
