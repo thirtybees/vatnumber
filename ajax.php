@@ -27,4 +27,10 @@ include(dirname(__FILE__).'/../../config/config.inc.php');
 include(dirname(__FILE__).'/../../init.php');
 include(dirname(__FILE__).'/vatnumber.php');
 
-echo VatNumber::isApplicable(Tools::getValue('id_country'));
+/** @noinspection PhpUnhandledExceptionInspection */
+if (VatNumber::isApplicable(Tools::getValue('id_country'))) {
+    echo "1";
+} else {
+    echo "0";
+}
+

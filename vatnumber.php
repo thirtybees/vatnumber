@@ -144,14 +144,28 @@ class VatNumber extends TaxManagerModule
             //Bulgaria
             'HR' => 'HR',
             //Croatia
+            'XI' => 'XI'
+            // Norhen Ireland
         ];
 
         return $intracomArray;
     }
 
+    /**
+     * @param int $idCountry
+     * @return boolean
+     * @throws PrestaShopException
+     */
     public static function isApplicable($idCountry)
     {
-        return (((int) $idCountry && array_key_exists(Country::getIsoById($idCountry), self::getPrefixIntracomVAT())) ? 1 : 0);
+        $idCountry = (int)$idCountry;
+        if ($idCountry) {
+            $isoCode = Country::getIsoById($idCountry);
+            if ($isoCode) {
+                return array_key_exists($isoCode, static::getPrefixIntracomVAT());
+            }
+        }
+        return false;
     }
 
     /**
