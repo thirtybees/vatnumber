@@ -23,16 +23,22 @@
  * PrestaShop is an internationally registered trademark of PrestaShop SA.
  */
 
-use \GuzzleHttp\Exception\RequestException;
+use GuzzleHttp\Exception\RequestException;
 
 if (!defined('_TB_VERSION_')) {
     exit;
 }
 
+/**
+ * VatNumber module
+ */
 class VatNumber extends TaxManagerModule
 {
     const VAT_EXEMPTION_FLAG = 'vatExemption';
 
+    /**
+     * @throws PrestaShopException
+     */
     public function __construct()
     {
         $this->name = 'vatnumber';
@@ -58,12 +64,23 @@ class VatNumber extends TaxManagerModule
         $this->ps_versions_compliancy = ['min' => '1.6', 'max' => '1.6.1.99'];
     }
 
+    /**
+     * @return bool
+     * @throws HTMLPurifier_Exception
+     * @throws PrestaShopDatabaseException
+     * @throws PrestaShopException
+     */
     public function install()
     {
         return parent::install()
                && Configuration::updateValue('VATNUMBER_MANAGEMENT', 1);
     }
 
+    /**
+     * @return bool
+     * @throws PrestaShopDatabaseException
+     * @throws PrestaShopException
+     */
     public function uninstall()
     {
         return parent::uninstall()
@@ -73,18 +90,34 @@ class VatNumber extends TaxManagerModule
                && Configuration::deleteByName('VATNUMBER_MANAGEMENT');
     }
 
+    /**
+     * @param $forceAll
+     * @return void
+     * @throws HTMLPurifier_Exception
+     * @throws PrestaShopException
+     */
     public function enable($forceAll = false)
     {
         parent::enable($forceAll);
         Configuration::updateValue('VATNUMBER_MANAGEMENT', 1);
     }
 
+    /**
+     * @param $forceAll
+     * @return void
+     * @throws HTMLPurifier_Exception
+     * @throws PrestaShopDatabaseException
+     * @throws PrestaShopException
+     */
     public function disable($forceAll = false)
     {
         parent::disable($forceAll);
         Configuration::updateValue('VATNUMBER_MANAGEMENT', 0);
     }
 
+    /**
+     * @return string[]
+     */
     public static function getPrefixIntracomVAT()
     {
         $intracomArray = [
@@ -178,10 +211,11 @@ class VatNumber extends TaxManagerModule
      * @return bool|string Boolean true for a valid number. Error string on
      *                     validation failure or an invalid number.
      *
+     * @throws PrestaShopException
+     *
      * @todo As soon as we have a suitable hook system (see comment in
      *       Address:validateController()), this should become a hook.
      *
-     * @since 2.1.0
      */
     public static function validateNumber(Address &$address)
     {
@@ -235,8 +269,8 @@ class VatNumber extends TaxManagerModule
      * @return array Error messages. An empty array means the given number is a
      *               valid, registered VAT number.
      *
+     * @throws PrestaShopException
      * @since 1.0.0
-     *
      */
     public static function WebServiceCheck($vatNumber)
     {
@@ -420,6 +454,9 @@ class VatNumber extends TaxManagerModule
     }
 
     /**
+     * @throws PrestaShopException
+     * @throws HTMLPurifier_Exception
+     * @throws SmartyException
      * @since 1.0.0
      * @since 2.1.0 Added VATNUMBER_MANUAL handling.
      */
@@ -444,6 +481,8 @@ class VatNumber extends TaxManagerModule
     }
 
     /**
+     * @throws PrestaShopException
+     * @throws SmartyException
      * @since 1.0.0
      * @since 2.1.0 Added VATNUMBER_MANUAL part.
      */
@@ -553,8 +592,9 @@ class VatNumber extends TaxManagerModule
     }
 
     /**
-     * @since 1.0.0
+     * @throws PrestaShopException
      * @since 2.1.0 Added VATNUMBER_MANUAL handling.
+     * @since 1.0.0
      */
     public function getConfigFieldsValues()
     {
@@ -573,6 +613,8 @@ class VatNumber extends TaxManagerModule
      * modes.
      *
      * @param string $context Context.
+     *
+     * @throws PrestaShopException
      *
      * @todo As soon as we have a suitable hook system (see comment in
      *       Address:validateController()), this should become a hook.
@@ -605,10 +647,13 @@ class VatNumber extends TaxManagerModule
      * @param Address $address Alias of the address to display. May be different
      *                         on return. Can be NULL for a new address.
      *
+     * @throws PrestaShopException
+     *
      * @todo When the updater has learned to do database upgrades it's likely
      *       we want to store the 'vat_exemption' flag directly in the
      *       database, making this method obsolete. This would also make all
      *       the code for finding and calling this method in core obsolete.
+     *
      * @todo As soon as we have a suitable hook system (see comment in
      *       Address:validateController()), this should become a hook.
      *
@@ -628,6 +673,7 @@ class VatNumber extends TaxManagerModule
 
     /**
      * Note: this hook currently doesn't get triggered anywhere.
+     * @throws PrestaShopException
      */
     public function hookActionValidateCustomerAddressForm(&$params)
     {

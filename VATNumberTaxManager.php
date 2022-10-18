@@ -27,6 +27,11 @@ require_once __DIR__.'/vatnumber.php';
 
 class VATNumberTaxManager implements TaxManagerInterface
 {
+    /**
+     * @param Address $address
+     * @return bool
+     * @throws PrestaShopException
+     */
     public static function isAvailableForThisAddress(Address $address)
     {
         return (!empty($address->vat_number)
@@ -36,6 +41,10 @@ class VATNumberTaxManager implements TaxManagerInterface
         );
     }
 
+    /**
+     * @return TaxCalculator
+     * @throws Exception
+     */
     public function getTaxCalculator()
     {
         // If the address matches the european vat number criterias no taxes are applied
