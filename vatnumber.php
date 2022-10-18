@@ -461,16 +461,14 @@ class VatNumber extends TaxManagerModule
     {
         $echo = '';
 
-        if (Tools::isSubmit('submitVatNumber')) {
-            if (Configuration::updateValue('VATNUMBER_COUNTRY',
-                                           (int) Tools::getValue('VATNUMBER_COUNTRY'))
-                && Configuration::updateValue('VATNUMBER_MANUAL',
-                                              (bool) Tools::getValue('VATNUMBER_MANUAL'))
-                && Configuration::updateValue('VATNUMBER_CHECKING',
-                                              (bool) Tools::getValue('VATNUMBER_CHECKING'))) {
-                $echo .= $this->displayConfirmation($this->l('Settings updated successfully.'));
+        if (Tools::isSubmit('SAVE_SETTINGS')) {
+            if (Configuration::updateValue('VATNUMBER_COUNTRY', (int) Tools::getValue('VATNUMBER_COUNTRY')) &&
+                Configuration::updateValue('VATNUMBER_MANUAL', (bool) Tools::getValue('VATNUMBER_MANUAL')) &&
+                Configuration::updateValue('VATNUMBER_CHECKING', (bool) Tools::getValue('VATNUMBER_CHECKING'))
+            ) {
+                $echo = $this->displayConfirmation($this->l('Settings updated successfully.'));
             } else {
-                $echo .= $this->displayError($this->l('Failed to update settings.'));
+                $echo = $this->displayError($this->l('Failed to update settings.'));
             }
         }
 
@@ -501,7 +499,7 @@ class VatNumber extends TaxManagerModule
             ];
         }
 
-        $fieldsForm = [
+        $settingsForm = [
             'form' => [
                 'legend' => [
                     'title' => $this->l('Settings'),
@@ -562,6 +560,34 @@ class VatNumber extends TaxManagerModule
                 ],
                 'submit' => [
                     'title' => $this->l('Save'),
+                    'name' => 'SAVE_SETTINGS'
+                ],
+            ],
+        ];
+
+        $manualValidationForm = [
+            'form' => [
+                'legend' => [
+                    'title' => $this->l('VAT number validation'),
+                    'icon'  => 'icon-check'
+                ],
+                'input' => [
+                    [
+                        'type'      => 'text',
+                        'label'     => $this->l('VAT number'),
+                        'name'      => 'CHECK_VATNUMBER',
+                        'is_bool'   => true,
+                        'desc'      => $this->l('VAT number including country prefix.'),
+                    ],
+                    [
+                        'type' => 'html',
+                        'name' => 'CHECK_RESULT',
+                        'html_content' => $this->getCheckResult(),
+                    ],
+                ],
+                'submit' => [
+                    'title' => $this->l('Check'),
+                    'name' => 'CHECK_VATNUMBER_PROCESS'
                 ],
             ],
         ];
@@ -575,7 +601,7 @@ class VatNumber extends TaxManagerModule
         $helper->allow_employee_form_lang = Configuration::get('PS_BO_ALLOW_EMPLOYEE_FORM_LANG') ? Configuration::get('PS_BO_ALLOW_EMPLOYEE_FORM_LANG') : 0;
 
         $helper->identifier = $this->identifier;
-        $helper->submit_action = 'submitVatNumber';
+        $helper->submit_action = 'submitForm';
         $helper->currentIndex = $this->context->link->getAdminLink('AdminModules', false).'&configure='.$this->name.'&tab_module='.$this->tab.'&module_name='.$this->name;
         $helper->token = Tools::getAdminTokenLite('AdminModules');
         $helper->tpl_vars = [
@@ -584,7 +610,10 @@ class VatNumber extends TaxManagerModule
             'id_language'   => $this->context->language->id
         ];
 
-        return $helper->generateForm([$fieldsForm]);
+        return (
+            $helper->generateForm([$settingsForm]) .
+            $helper->generateForm([$manualValidationForm])
+        );
     }
 
     /**
@@ -595,12 +624,10 @@ class VatNumber extends TaxManagerModule
     public function getConfigFieldsValues()
     {
         return [
-            'VATNUMBER_COUNTRY'   =>
-                Tools::getValue('VATNUMBER_COUNTRY', Configuration::get('VATNUMBER_COUNTRY')),
-            'VATNUMBER_MANUAL'    =>
-                Tools::getValue('VATNUMBER_MANUAL', Configuration::get('VATNUMBER_MANUAL')),
-            'VATNUMBER_CHECKING'  =>
-                Tools::getValue('VATNUMBER_CHECKING', Configuration::get('VATNUMBER_CHECKING')),
+            'VATNUMBER_COUNTRY' => Tools::getValue('VATNUMBER_COUNTRY', Configuration::get('VATNUMBER_COUNTRY')),
+            'VATNUMBER_MANUAL' => Tools::getValue('VATNUMBER_MANUAL', Configuration::get('VATNUMBER_MANUAL')),
+            'VATNUMBER_CHECKING' => Tools::getValue('VATNUMBER_CHECKING', Configuration::get('VATNUMBER_CHECKING')),
+            'CHECK_VATNUMBER' => Tools::getValue('CHECK_VATNUMBER', ''),
         ];
     }
 
@@ -666,6 +693,35 @@ class VatNumber extends TaxManagerModule
             $address->vat_exemption = true;
             $address->vat_number = '';
         }
+    }
+
+    /**
+     * @return string
+     */
+    protected function getCheckResult()
+    {
+        if (Tools::isSubmit('CHECK_VATNUMBER_PROCESS')) {
+            $vatnumber = Tools::getValue('CHECK_VATNUMBER');
+            $prefix = strtoupper(substr($vatnumber, 0, 2));
+            if (!$prefix || !array_key_exists($prefix, static::getPrefixIntracomVAT())) {
+                return '<div class="alert alert-danger">'.Tools::displayError("Invalid vat number prefix").'</div>';
+            }
+            try {
+                $res = $this->WebServiceCheck($vatnumber);
+                if (count($res) === 0) {
+                    return '<div class="alert alert-success">'.sprintf($this->l('%s is valid VAT number'), $vatnumber).'<div>';
+                } else {
+                    $ret = "";
+                    foreach ($res as $errorMessage) {
+                        $ret .=  '<div class="alert alert-danger">' . Tools::safeOutput($errorMessage) . '</div>';
+                    }
+                    return $ret;
+                }
+            } catch (Exception $e) {
+                return '<div class="alert alert-danger">'.Tools::safeOutput(sprintf(Tools::displayError("Exception: %s"), "$e")).'</div>';
+            }
+        }
+        return '';
     }
 
 }
