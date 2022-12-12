@@ -215,7 +215,7 @@ class VatNumber extends TaxManagerModule
      *       Address:validateController()), this should become a hook.
      *
      */
-    public static function validateNumber(Address $address)
+    public static function validateNumber(AddressCore $address)
     {
         /*
          * Handle the VAT exemption flag. In case we also have a VAT number,
