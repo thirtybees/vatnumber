@@ -118,64 +118,35 @@ class VatNumber extends TaxManagerModule
     public static function getPrefixIntracomVAT()
     {
         $intracomArray = [
-            'AT' => 'AT',
-            //Austria
-            'BE' => 'BE',
-            //Belgium
-            'DK' => 'DK',
-            //Denmark
-            'FI' => 'FI',
-            //Finland
-            'FR' => 'FR',
-            //France
-            'FX' => 'FR',
-            //France métropolitaine
-            'DE' => 'DE',
-            //Germany
-            'GR' => 'EL',
-            //Greece
-            'IE' => 'IE',
-            //Irland
-            'IT' => 'IT',
-            //Italy
-            'LU' => 'LU',
-            //Luxembourg
-            'NL' => 'NL',
-            //Netherlands
-            'PT' => 'PT',
-            //Portugal
-            'ES' => 'ES',
-            //Spain
-            'SE' => 'SE',
-            //Sweden
-            'CY' => 'CY',
-            //Cyprus
-            'EE' => 'EE',
-            //Estonia
-            'HU' => 'HU',
-            //Hungary
-            'LV' => 'LV',
-            //Latvia
-            'LT' => 'LT',
-            //Lithuania
-            'MT' => 'MT',
-            //Malta
-            'PL' => 'PL',
-            //Poland
-            'SK' => 'SK',
-            //Slovakia
-            'CZ' => 'CZ',
-            //Czech Republic
-            'SI' => 'SI',
-            //Slovenia
-            'RO' => 'RO',
-            //Romania
-            'BG' => 'BG',
-            //Bulgaria
-            'HR' => 'HR',
-            //Croatia
-            'XI' => 'XI'
-            // Norhen Ireland
+            'AT' => 'AT', //Austria
+            'BE' => 'BE', //Belgium
+            'DK' => 'DK', //Denmark
+            'FI' => 'FI', //Finland
+            'FR' => 'FR', //France
+            'FX' => 'FR', //France métropolitaine
+            'DE' => 'DE', //Germany
+            'GR' => 'EL', //Greece
+            'IE' => 'IE', //Irland
+            'IT' => 'IT', //Italy
+            'LU' => 'LU', //Luxembourg
+            'NL' => 'NL', //Netherlands
+            'PT' => 'PT', //Portugal
+            'ES' => 'ES', //Spain
+            'SE' => 'SE', //Sweden
+            'CY' => 'CY', //Cyprus
+            'EE' => 'EE', //Estonia
+            'HU' => 'HU', //Hungary
+            'LV' => 'LV', //Latvia
+            'LT' => 'LT', //Lithuania
+            'MT' => 'MT', //Malta
+            'PL' => 'PL', //Poland
+            'SK' => 'SK', //Slovakia
+            'CZ' => 'CZ', //Czech Republic
+            'SI' => 'SI', //Slovenia
+            'RO' => 'RO', //Romania
+            'BG' => 'BG', //Bulgaria
+            'HR' => 'HR', //Croatia
+            'XI' => 'XI' // Norhen Ireland
         ];
 
         return $intracomArray;
