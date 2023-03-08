@@ -59,7 +59,7 @@ class VatNumber extends TaxManagerModule
         $this->description = $this->l('This module adds handling of VAT exemptions for various tax laws.');
         $this->tb_versions_compliancy = '>= 1.0.8';
         $this->tb_min_version = '1.0.8';
-        $this->ps_versions_compliancy = ['min' => '1.6', 'max' => '1.6.1.99'];
+        $this->ps_versions_compliancy = ['min' => '1.6', 'max' => _PS_VERSION_];
     }
 
     /**
@@ -69,8 +69,11 @@ class VatNumber extends TaxManagerModule
      */
     public function install()
     {
-        return parent::install()
-               && Configuration::updateValue('VATNUMBER_MANAGEMENT', 1);
+        return (
+            parent::install() &&
+            $this->registerHook('actionObjectAddressValidateController') &&
+            Configuration::updateValue('VATNUMBER_MANAGEMENT', 1)
+        );
     }
 
     /**
@@ -110,6 +113,23 @@ class VatNumber extends TaxManagerModule
     {
         parent::disable($forceAll);
         Configuration::updateValue('VATNUMBER_MANAGEMENT', 0);
+    }
+
+    /**
+     * @param array $params
+     *
+     * @return string[]
+     * @throws PrestaShopException
+     */
+    public function hookActionObjectAddressValidateController($params)
+    {
+        if (isset($params['object'])) {
+            $error = static::validateNumber($params['object']);
+            if (is_string($error)) {
+                return [ $error ];
+            }
+        }
+        return [];
     }
 
     /**
@@ -176,14 +196,10 @@ class VatNumber extends TaxManagerModule
      *
      * @param Address $address The address with the VAT number to verify.
      *
-     * @return bool|string Boolean true for a valid number. Error string on
+     * @return true|string Boolean true for a valid number. Error string on
      *                     validation failure or an invalid number.
      *
      * @throws PrestaShopException
-     *
-     * @todo As soon as we have a suitable hook system (see comment in
-     *       Address:validateController()), this should become a hook.
-     *
      */
     public static function validateNumber(AddressCore $address)
     {
