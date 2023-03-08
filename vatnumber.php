@@ -250,6 +250,15 @@ class VatNumber extends TaxManagerModule
                     $result = true;
                 }
             }
+            // Country validation with VAT number
+            $excludedCountry = (int) Configuration::get('VATNUMBER_COUNTRY');
+            $isoVatNumber = substr($address->vat_number, 0, 2);
+            $isoAddress = Country::getIsoById($address->id_country);
+            if ($excludedCountry != $address->id_country && $isoVatNumber != $isoAddress) {
+                $result = Tools::displayError('VAT number inconsistent with country.');
+            } else {
+                $result = true;
+            }
         } else {
             $result = true;
         }
