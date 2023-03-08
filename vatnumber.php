@@ -254,7 +254,8 @@ class VatNumber extends TaxManagerModule
             $excludedCountry = (int) Configuration::get('VATNUMBER_COUNTRY');
             $isoVatNumber = substr($address->vat_number, 0, 2);
             $isoAddress = Country::getIsoById($address->id_country);
-            if ($excludedCountry != $address->id_country && $isoVatNumber != $isoAddress) {
+            $isoIntracom = array_search($isoVatNumber, static::getPrefixIntracomVAT());
+            if ($excludedCountry != $address->id_country && $isoAddress != $isoIntracom) {
                 $result = Tools::displayError('VAT number inconsistent with country.');
             } else {
                 $result = true;
