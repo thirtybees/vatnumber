@@ -64,7 +64,6 @@ class VatNumber extends TaxManagerModule
 
     /**
      * @return bool
-     * @throws HTMLPurifier_Exception
      * @throws PrestaShopDatabaseException
      * @throws PrestaShopException
      */
@@ -89,9 +88,10 @@ class VatNumber extends TaxManagerModule
     }
 
     /**
-     * @param $forceAll
+     * @param bool $forceAll
+     *
      * @return void
-     * @throws HTMLPurifier_Exception
+     * @throws PrestaShopDatabaseException
      * @throws PrestaShopException
      */
     public function enable($forceAll = false)
@@ -101,9 +101,8 @@ class VatNumber extends TaxManagerModule
     }
 
     /**
-     * @param $forceAll
+     * @param bool $forceAll
      * @return void
-     * @throws HTMLPurifier_Exception
      * @throws PrestaShopDatabaseException
      * @throws PrestaShopException
      */
@@ -322,8 +321,8 @@ class VatNumber extends TaxManagerModule
     }
 
     /**
+     * @return string
      * @throws PrestaShopException
-     * @throws HTMLPurifier_Exception
      * @throws SmartyException
      * @since 1.0.0
      * @since 2.1.0 Added VATNUMBER_MANUAL handling.
@@ -458,6 +457,8 @@ class VatNumber extends TaxManagerModule
             ],
         ];
 
+        /** @var AdminController $controller */
+        $controller = $this->context->controller;
         $helper = new HelperForm();
         $helper->module = $this;
         $helper->show_toolbar = false;
@@ -472,7 +473,7 @@ class VatNumber extends TaxManagerModule
         $helper->token = Tools::getAdminTokenLite('AdminModules');
         $helper->tpl_vars = [
             'fields_value'  => $this->getConfigFieldsValues(),
-            'languages'     => $this->context->controller->getLanguages(),
+            'languages'     => $controller->getLanguages(),
             'id_language'   => $this->context->language->id
         ];
 
