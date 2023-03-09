@@ -271,7 +271,7 @@ class VatNumber extends TaxManagerModule
                 return [Tools::displayError('VAT number not registered at your tax authorities.')];
             }
         } catch (Exception $e) {
-            return [$e->getMessage()];
+            return [sprintf(Tools::displayError('Failed to validate VAT number: %s'), $e->getMessage())];
         }
     }
 
