@@ -200,41 +200,40 @@ class VatNumber extends TaxManagerModule
             $address->vat_number = static::VAT_EXEMPTION_FLAG;
         }
 
-        if (Configuration::get('VATNUMBER_MANAGEMENT')
-            && !Configuration::get('VATNUMBER_MANUAL')) {
-            if ($address->company != '') {
+        if (Configuration::get('VATNUMBER_MANAGEMENT') && !Configuration::get('VATNUMBER_MANUAL')) {
+            $vatNumber = trim((string)$address->vat_number);
+            if ($vatNumber !== '' && $vatNumber !== static::VAT_EXEMPTION_FLAG) {
+
+                // Check that company is set
+                $company = trim((string)$address->company);
+                if ($company === '') {
+                    return Tools::displayError('VAT number, but no company name given.');
+                }
+
+                // Check VAT number prefix
+                $vatNumberPrefix = strtoupper(substr($vatNumber, 0, 2));
+                $vatNumberIsoCode = array_search($vatNumberPrefix, static::getPrefixIntracomVAT());
+                if ($vatNumberIsoCode === false) {
+                    return Tools::displayError('Invalid VAT number prefix');
+                }
+
+                // Country validation with VAT number
+                $vatNumberIsoCode = strtoupper($vatNumberIsoCode);
+                $isoAddress = strtoupper(Country::getIsoById($address->id_country));
+                if ($isoAddress !== $vatNumberIsoCode) {
+                    return Tools::displayError('VAT number inconsistent with country.');
+                }
+
                 if (Configuration::get('VATNUMBER_CHECKING')) {
                     $errors = static::WebServiceCheck($address->vat_number);
                     if (count($errors)) {
-                        $result = $errors[0];
-                    } else {
-                        $result = true;
+                        return $errors[0];
                     }
-                } else {
-                    $result = true;
-                }
-            } else {
-                if ($address->vat_number != '') {
-                    $result = Tools::displayError('VAT number, but no company name given.');
-                } else {
-                    $result = true;
                 }
             }
-            // Country validation with VAT number
-            $excludedCountry = (int) Configuration::get('VATNUMBER_COUNTRY');
-            $isoVatNumber = substr($address->vat_number, 0, 2);
-            $isoAddress = Country::getIsoById($address->id_country);
-            $isoIntracom = array_search($isoVatNumber, static::getPrefixIntracomVAT());
-            if ($excludedCountry != $address->id_country && $isoAddress != $isoIntracom) {
-                $result = Tools::displayError('VAT number inconsistent with country.');
-            } else {
-                $result = true;
-            }
-        } else {
-            $result = true;
         }
 
-        return $result;
+        return true;
     }
 
     /**
