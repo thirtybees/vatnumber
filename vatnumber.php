@@ -211,14 +211,15 @@ class VatNumber extends TaxManagerModule
          * 'vat_exemption' to the Address class, keeping compatibility with
          * older versions.
          */
-        if (Tools::getValue('vat_exemption')
-            && $address->vat_number == '') {
+        if (Tools::getValue('vat_exemption') && $address->vat_number == '') {
             $address->vat_number = static::VAT_EXEMPTION_FLAG;
         }
 
         if (Configuration::get('VATNUMBER_MANAGEMENT') && !Configuration::get('VATNUMBER_MANUAL')) {
             $vatNumber = trim((string)$address->vat_number);
-            if ($vatNumber !== '' && $vatNumber !== static::VAT_EXEMPTION_FLAG) {
+            $countryId = (int)$address->id_country;
+            $excludedCountry = (int)Configuration::get('VATNUMBER_COUNTRY');
+            if ($vatNumber !== '' && $vatNumber !== static::VAT_EXEMPTION_FLAG && $excludedCountry !== $countryId) {
 
                 // Check that company is set
                 $company = trim((string)$address->company);
@@ -235,7 +236,7 @@ class VatNumber extends TaxManagerModule
 
                 // Country validation with VAT number
                 $vatNumberIsoCode = strtoupper($vatNumberIsoCode);
-                $isoAddress = strtoupper(Country::getIsoById($address->id_country));
+                $isoAddress = strtoupper(Country::getIsoById($countryId));
                 if ($isoAddress !== $vatNumberIsoCode) {
                     return Tools::displayError('VAT number inconsistent with country.');
                 }
