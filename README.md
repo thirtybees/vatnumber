@@ -29,7 +29,10 @@ Validation happens in three layers, cheapest first:
    accepted from the local database without contacting VIES again.
 3. **VIES.** Only when needed, the module asks VIES (the EU's official VAT
    number database) via its REST API, with strict timeouts (5s connect, 10s
-   total). The VIES consultation ID is stored as proof of the check.
+   total). The VIES consultation ID is stored as proof of the check. If the
+   REST interface fails and the PHP soap extension is available, the legacy
+   SOAP interface is tried once as a silent fallback (same database, same
+   answers) before the outage handling below kicks in.
 
 ## What happens when VIES is down
 

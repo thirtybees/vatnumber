@@ -22,15 +22,20 @@ if (!defined('_TB_VERSION_')) {
 }
 
 /**
- * Client for the VIES REST API of the European Commission.
+ * Client for the VIES service of the European Commission.
  *
- * Replaces the former SOAP client. One HTTPS request per check, strict
+ * Primary transport is the REST API: one HTTPS request per check, strict
  * timeouts, and explicit error codes that let us distinguish an invalid
- * number from a service outage.
+ * number from a service outage. When REST cannot answer and the PHP soap
+ * extension is available, the legacy SOAP interface is tried once as a
+ * silent fallback; both talk to the same backend database. Only when
+ * neither transport answers is the check reported as an outage.
  */
 class VatNumberViesClient
 {
     const ENDPOINT = 'https://ec.europa.eu/taxation_customs/vies/rest-api/check-vat-number';
+
+    const SOAP_WSDL = 'https://ec.europa.eu/taxation_customs/vies/checkVatService.wsdl';
 
     /** Seconds to wait for the TCP/TLS connection. */
     const CONNECT_TIMEOUT = 5;
@@ -69,6 +74,36 @@ class VatNumberViesClient
      * @throws PrestaShopException on configuration errors (e.g. missing cURL).
      */
     public static function checkVat($countryCode, $number)
+    {
+        try {
+            return static::checkVatRest($countryCode, $number);
+        } catch (VatNumberViesUnavailableException $restException) {
+            if (!extension_loaded('soap')) {
+                throw $restException;
+            }
+            try {
+                $result = static::checkVatSoap($countryCode, $number);
+            } catch (VatNumberViesUnavailableException $soapException) {
+                throw new VatNumberViesUnavailableException('REST: '.$restException->getMessage().'; SOAP fallback: '.$soapException->getMessage());
+            }
+            PrestaShopLogger::addLog('vatnumber: VIES REST interface failed ('.$restException->getMessage().'), the SOAP fallback answered instead.', 1);
+
+            return $result;
+        }
+    }
+
+    /**
+     * Ask VIES via the REST API, the primary transport.
+     *
+     * @param string $countryCode VIES country code, e.g. 'NL' or 'EL'.
+     * @param string $number Number part after the country prefix.
+     *
+     * @return array Same shape as checkVat().
+     *
+     * @throws VatNumberViesUnavailableException when the REST interface cannot answer.
+     * @throws PrestaShopException on configuration errors (e.g. missing cURL).
+     */
+    protected static function checkVatRest($countryCode, $number)
     {
         if (!function_exists('curl_init')) {
             throw new PrestaShopException('PHP curl extension not loaded');
@@ -142,6 +177,66 @@ class VatNumberViesClient
             'requestIdentifier' => isset($data['requestIdentifier']) ? (string) $data['requestIdentifier'] : '',
             'name'              => static::cleanTraderString(isset($data['name']) ? $data['name'] : ''),
             'address'           => static::cleanTraderString(isset($data['address']) ? $data['address'] : ''),
+        ];
+    }
+
+    /**
+     * Ask VIES via the legacy SOAP interface. Fallback transport, only used
+     * when REST failed and the PHP soap extension is loaded. Same backend
+     * database, so answers are identical; SOAP just does not return a
+     * consultation ID.
+     *
+     * @param string $countryCode VIES country code, e.g. 'NL' or 'EL'.
+     * @param string $number Number part after the country prefix.
+     *
+     * @return array Same shape as checkVat(), with an empty
+     *               'requestIdentifier' (the SOAP checkVat operation does
+     *               not provide one).
+     *
+     * @throws VatNumberViesUnavailableException when the SOAP interface cannot answer.
+     */
+    protected static function checkVatSoap($countryCode, $number)
+    {
+        // The WSDL download does not honor SoapClient timeouts, it uses this
+        // ini setting. Narrow it for the call, restore afterwards.
+        $previousTimeout = ini_get('default_socket_timeout');
+        ini_set('default_socket_timeout', (string) static::TIMEOUT);
+        try {
+            $client = new SoapClient(static::SOAP_WSDL, [
+                'connection_timeout' => static::CONNECT_TIMEOUT,
+                'exceptions'         => true,
+                'stream_context'     => stream_context_create([
+                    'http' => ['timeout' => static::TIMEOUT],
+                ]),
+            ]);
+            $response = $client->checkVat([
+                'countryCode' => (string) $countryCode,
+                'vatNumber'   => (string) $number,
+            ]);
+        } catch (SoapFault $fault) {
+            $code = strtoupper(trim($fault->getMessage()));
+            if ($code === 'INVALID_INPUT') {
+                return [
+                    'valid'             => false,
+                    'requestIdentifier' => '',
+                    'name'              => '',
+                    'address'           => '',
+                ];
+            }
+
+            // Outage codes and anything unrecognized (WSDL fetch failures,
+            // HTTP errors) count as "could not be asked", never as a
+            // rejection of the customer's number.
+            throw new VatNumberViesUnavailableException('VIES SOAP request failed: '.$fault->getMessage());
+        } finally {
+            ini_set('default_socket_timeout', (string) $previousTimeout);
+        }
+
+        return [
+            'valid'             => !empty($response->valid),
+            'requestIdentifier' => '',
+            'name'              => static::cleanTraderString(isset($response->name) ? $response->name : ''),
+            'address'           => static::cleanTraderString(isset($response->address) ? $response->address : ''),
         ];
     }
 
