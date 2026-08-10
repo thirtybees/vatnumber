@@ -34,11 +34,25 @@ class VATNumberTaxManager implements TaxManagerInterface
      */
     public static function isAvailableForThisAddress(Address $address)
     {
-        return (!empty($address->vat_number)
+        $available = (!empty($address->vat_number)
             && ($address->id_country != Configuration::get('VATNUMBER_COUNTRY')
                 || $address->vat_number === VatNumber::VAT_EXEMPTION_FLAG)
             && Configuration::get('VATNUMBER_MANAGEMENT')
         );
+
+        // Strict mode: apply the exemption only after VIES confirmed the
+        // number. Numbers accepted provisionally during a VIES outage keep
+        // paying VAT until the background check confirms them. Manual
+        // exemptions (the checkbox) are not VIES verifiable and stay exempt.
+        if ($available
+            && $address->vat_number !== VatNumber::VAT_EXEMPTION_FLAG
+            && Configuration::get('VATNUMBER_CHECKING')
+            && Configuration::get('VATNUMBER_REQUIRE_VALIDATION')
+        ) {
+            $available = VatNumber::isVerifiedValid($address->vat_number);
+        }
+
+        return $available;
     }
 
     /**

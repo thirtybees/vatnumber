@@ -27,6 +27,11 @@ if (!defined('_TB_VERSION_')) {
     exit;
 }
 
+require_once __DIR__.'/classes/VatNumberFormat.php';
+require_once __DIR__.'/classes/VatNumberCheck.php';
+require_once __DIR__.'/classes/VatNumberViesUnavailableException.php';
+require_once __DIR__.'/classes/VatNumberViesClient.php';
+
 /**
  * VatNumber module
  */
@@ -41,7 +46,7 @@ class VatNumber extends TaxManagerModule
     {
         $this->name = 'vatnumber';
         $this->tab = 'billing_invoicing';
-        $this->version = '2.6.0';
+        $this->version = '2.7.0';
         $this->author = 'thirty bees';
         $this->need_instance = true;
 
@@ -71,9 +76,38 @@ class VatNumber extends TaxManagerModule
     {
         return (
             parent::install() &&
+            $this->executeSqlScript('install') &&
             $this->registerHook('actionObjectAddressValidateController') &&
-            Configuration::updateValue('VATNUMBER_MANAGEMENT', 1)
+            Configuration::updateValue('VATNUMBER_MANAGEMENT', 1) &&
+            Configuration::updateValue('VATNUMBER_REQUIRE_VALIDATION', 0) &&
+            Configuration::updateValue('VATNUMBER_CRON_TOKEN', Tools::passwdGen(16))
         );
+    }
+
+    /**
+     * Execute one of the SQL scripts in sql/. Placeholders PREFIX_ and
+     * ENGINE_TYPE get replaced with the shop's actual values.
+     *
+     * @param string $script Script name without path and extension.
+     *
+     * @return bool
+     * @throws PrestaShopException
+     */
+    public function executeSqlScript($script)
+    {
+        $file = __DIR__.'/sql/'.$script.'.sql';
+        $content = file_get_contents($file);
+        if ($content === false) {
+            throw new PrestaShopException('Failed to read SQL script: '.$file);
+        }
+        $content = str_replace(['PREFIX_', 'ENGINE_TYPE'], [_DB_PREFIX_, _MYSQL_ENGINE_], $content);
+        foreach (array_filter(array_map('trim', explode(';', $content))) as $statement) {
+            if (!Db::getInstance()->execute($statement)) {
+                throw new PrestaShopException('SQL script '.$script.' failed: '.Db::getInstance()->getMsgError());
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -84,10 +118,13 @@ class VatNumber extends TaxManagerModule
     public function uninstall()
     {
         return parent::uninstall()
+               && $this->executeSqlScript('uninstall')
                && Configuration::deleteByName('VATNUMBER_CHECKING')
                && Configuration::deleteByName('VATNUMBER_MANUAL')
                && Configuration::deleteByName('VATNUMBER_COUNTRY')
-               && Configuration::deleteByName('VATNUMBER_MANAGEMENT');
+               && Configuration::deleteByName('VATNUMBER_MANAGEMENT')
+               && Configuration::deleteByName('VATNUMBER_REQUIRE_VALIDATION')
+               && Configuration::deleteByName('VATNUMBER_CRON_TOKEN');
     }
 
     /**
@@ -143,7 +180,7 @@ class VatNumber extends TaxManagerModule
             'DK' => 'DK', //Denmark
             'FI' => 'FI', //Finland
             'FR' => 'FR', //France
-            'FX' => 'FR', //France métropolitaine
+            'FX' => 'FR', //France metropolitaine
             'DE' => 'DE', //Germany
             'GR' => 'EL', //Greece
             'IE' => 'IE', //Irland
@@ -166,7 +203,7 @@ class VatNumber extends TaxManagerModule
             'RO' => 'RO', //Romania
             'BG' => 'BG', //Bulgaria
             'HR' => 'HR', //Croatia
-            'XI' => 'XI' // Norhen Ireland
+            'XI' => 'XI' // Northern Ireland
         ];
 
         return $intracomArray;
@@ -241,8 +278,15 @@ class VatNumber extends TaxManagerModule
                     return Tools::displayError('VAT number inconsistent with country.');
                 }
 
+                // Local format validation. Runs offline and catches typos
+                // before VIES is ever contacted.
+                $normalized = VatNumberCheck::normalize($vatNumber);
+                if (!VatNumberFormat::isValid($vatNumberPrefix, substr($normalized, 2))) {
+                    return Tools::displayError('VAT number format is invalid for this country.');
+                }
+
                 if (Configuration::get('VATNUMBER_CHECKING')) {
-                    $errors = static::WebServiceCheck($address->vat_number);
+                    $errors = static::WebServiceCheck($normalized);
                     if (count($errors)) {
                         return $errors[0];
                     }
@@ -254,57 +298,150 @@ class VatNumber extends TaxManagerModule
     }
 
     /**
-     * Validate a VAT number using the EC's web service.
+     * Validate a VAT number using the EC's VIES web service, with a local
+     * cache and a graceful fallback on service outages.
      *
-     * @param string $vatNumber The VAT number, including country code.
+     * Flow:
+     *   1. A VIES confirmed 'valid' result younger than
+     *      VatNumberCheck::CACHE_DAYS is served from the local database, no
+     *      network access.
+     *   2. Otherwise VIES is asked (REST, strict timeouts).
+     *   3. When VIES cannot answer, the number is accepted provisionally,
+     *      recorded as 'unverified' and logged. The cron re-checks it later.
      *
-     * @return array Error messages. An empty array means the given number is a
-     *               valid, registered VAT number.
+     * @param string $vatNumber The VAT number, including country code,
+     *                          preferably normalized.
+     *
+     * @return array Error messages. An empty array means the number is
+     *               valid, cached valid, or provisionally accepted.
      *
      * @since 1.0.0
+     * @since 2.7.0 Cache and outage fallback.
      */
     public static function WebServiceCheck($vatNumber)
     {
+        $normalized = VatNumberCheck::normalize($vatNumber);
+        if ($normalized === '') {
+            return [];
+        }
+        $countryCode = substr($normalized, 0, 2);
+        $plainNumber = substr($normalized, 2);
+
         try {
-            if (empty($vatNumber) || static::checkVat($vatNumber)) {
+            $check = VatNumberCheck::findByNumber($normalized);
+            if ($check && $check->isFreshValid()) {
                 return [];
-            } else {
-                return [Tools::displayError('VAT number not registered at your tax authorities.')];
             }
+
+            try {
+                $result = VatNumberViesClient::checkVat($countryCode, $plainNumber);
+            } catch (VatNumberViesUnavailableException $e) {
+                // VIES is down. Accept provisionally instead of blocking the
+                // customer, remember that verification is still owed and log
+                // loudly so the merchant can follow up.
+                VatNumberCheck::recordResult($normalized, $countryCode, VatNumberCheck::STATUS_UNVERIFIED, VatNumberCheck::SOURCE_FORMAT);
+                PrestaShopLogger::addLog('vatnumber: VIES unavailable, VAT number '.$normalized.' accepted provisionally. Reason: '.$e->getMessage(), 3);
+
+                return [];
+            }
+
+            if ($result['valid']) {
+                VatNumberCheck::recordResult($normalized, $countryCode, VatNumberCheck::STATUS_VALID, VatNumberCheck::SOURCE_VIES, $result['requestIdentifier'], $result['name'], $result['address']);
+
+                return [];
+            }
+
+            VatNumberCheck::recordResult($normalized, $countryCode, VatNumberCheck::STATUS_INVALID, VatNumberCheck::SOURCE_VIES, $result['requestIdentifier']);
+
+            return [Tools::displayError('VAT number not registered at your tax authorities.')];
         } catch (Exception $e) {
+            PrestaShopLogger::addLog('vatnumber: VAT number check failed for '.$normalized.': '.$e->getMessage(), 3);
+
             return [sprintf(Tools::displayError('Failed to validate VAT number: %s'), $e->getMessage())];
         }
     }
 
     /**
+     * True when a VAT number has a VIES confirmed 'valid' record in the
+     * local database. Used by the tax manager in strict mode: exemption only
+     * after successful verification.
+     *
      * @param string $vatNumber
-     * @return false | array
+     *
+     * @return bool
      * @throws PrestaShopException
-     * @throws SoapFault
      */
-    protected static function checkVat($vatNumber)
+    public static function isVerifiedValid($vatNumber)
     {
-        if (! $vatNumber) {
-            throw new PrestaShopException("Empty VAT number");
+        $check = VatNumberCheck::findByNumber(VatNumberCheck::normalize($vatNumber));
+
+        return $check && $check->status === VatNumberCheck::STATUS_VALID;
+    }
+
+    /**
+     * Work through VAT numbers that still need attention from VIES: numbers
+     * accepted provisionally during an outage, and valid numbers whose last
+     * check has become old (registrations expire). Called by the cron
+     * controller.
+     *
+     * @param int $limit Maximum numbers to check in one run, to respect
+     *                   VIES rate limits.
+     *
+     * @return array Summary: numbers checked, confirmed, rejected, and
+     *               whether VIES was reachable.
+     *
+     * @throws PrestaShopException
+     */
+    public static function runBackgroundChecks($limit = 20)
+    {
+        $limit = max(1, (int) $limit);
+        $rows = VatNumberCheck::getPending($limit);
+        $remaining = $limit - count($rows);
+        if ($remaining > 0) {
+            $rows = array_merge($rows, VatNumberCheck::getStale($remaining));
         }
 
-        if (! extension_loaded('soap')) {
-            throw new PrestaShopException(Tools::displayError('PHP soap extension not loaded'));
+        $summary = [
+            'checked'   => 0,
+            'confirmed' => 0,
+            'rejected'  => 0,
+            'pending'   => 0,
+            'vies_down' => false,
+        ];
+        $rejected = [];
+
+        foreach ($rows as $row) {
+            try {
+                $result = VatNumberViesClient::checkVat($row['country_code'], substr($row['vat_number'], 2));
+            } catch (VatNumberViesUnavailableException $e) {
+                // Still down, or down again. Stop the run, the rest would
+                // fail the same way. Numbers stay 'unverified'.
+                PrestaShopLogger::addLog('vatnumber cron: VIES unavailable, stopping this run. Reason: '.$e->getMessage(), 2);
+                $summary['vies_down'] = true;
+                break;
+            }
+
+            $summary['checked']++;
+            if ($result['valid']) {
+                VatNumberCheck::recordResult($row['vat_number'], $row['country_code'], VatNumberCheck::STATUS_VALID, VatNumberCheck::SOURCE_VIES, $result['requestIdentifier'], $result['name'], $result['address']);
+                $summary['confirmed']++;
+            } else {
+                VatNumberCheck::recordResult($row['vat_number'], $row['country_code'], VatNumberCheck::STATUS_INVALID, VatNumberCheck::SOURCE_VIES, $result['requestIdentifier']);
+                $summary['rejected']++;
+                $rejected[] = $row['vat_number'];
+            }
         }
 
-        $countryCode = substr($vatNumber, 0, 2);
-        $vatNumber = substr(str_replace(' ', '', $vatNumber), 2);
-        $webService = new SoapClient("https://ec.europa.eu/taxation_customs/vies/checkVatService.wsdl");
-        /** @noinspection PhpUndefinedMethodInspection */
-        $response = $webService->checkVat([
-            'countryCode' => $countryCode,
-            'vatNumber' => $vatNumber
-        ]);
-        if ($response->valid) {
-            return (array)$response;
-        } else {
-            return false;
+        if ($rejected) {
+            // Severity 3 so merchants with email logging configured get
+            // notified: these customers received an exemption that VIES now
+            // says was not justified.
+            PrestaShopLogger::addLog('vatnumber cron: VIES rejected VAT number(s) '.implode(', ', $rejected).'. Review the orders of these customers, VAT may have to be re-invoiced.', 3);
         }
+
+        $summary['pending'] = VatNumberCheck::countPending();
+
+        return $summary;
     }
 
     /**
@@ -321,7 +458,8 @@ class VatNumber extends TaxManagerModule
         if (Tools::isSubmit('SAVE_SETTINGS')) {
             if (Configuration::updateValue('VATNUMBER_COUNTRY', (int) Tools::getValue('VATNUMBER_COUNTRY')) &&
                 Configuration::updateValue('VATNUMBER_MANUAL', (bool) Tools::getValue('VATNUMBER_MANUAL')) &&
-                Configuration::updateValue('VATNUMBER_CHECKING', (bool) Tools::getValue('VATNUMBER_CHECKING'))
+                Configuration::updateValue('VATNUMBER_CHECKING', (bool) Tools::getValue('VATNUMBER_CHECKING')) &&
+                Configuration::updateValue('VATNUMBER_REQUIRE_VALIDATION', (bool) Tools::getValue('VATNUMBER_REQUIRE_VALIDATION'))
             ) {
                 $echo = $this->displayConfirmation($this->l('Settings updated successfully.'));
             } else {
@@ -329,7 +467,36 @@ class VatNumber extends TaxManagerModule
             }
         }
 
-        return $echo.$this->renderForm();
+        return $echo.$this->renderForm().$this->renderStatusPanel();
+    }
+
+    /**
+     * Small status panel below the settings: how many numbers still await
+     * verification, and the cron URL that works through them.
+     *
+     * @return string
+     * @throws PrestaShopException
+     */
+    protected function renderStatusPanel()
+    {
+        $pending = VatNumberCheck::countPending();
+        $cronUrl = $this->context->link->getModuleLink(
+            'vatnumber',
+            'cron',
+            ['token' => Configuration::get('VATNUMBER_CRON_TOKEN')]
+        );
+
+        $html = '<div class="panel"><h3><i class="icon icon-time"></i> '.$this->l('Background verification').'</h3>';
+        if ($pending) {
+            $html .= '<p class="alert alert-warning">'.sprintf($this->l('%d VAT number(s) are still awaiting VIES verification (accepted while the service was unreachable).'), $pending).'</p>';
+        } else {
+            $html .= '<p class="alert alert-success">'.$this->l('No VAT numbers are awaiting verification.').'</p>';
+        }
+        $html .= '<p>'.$this->l('To verify pending numbers and re-check old ones automatically, call this URL from a scheduled task (for example every hour, via the cronjobs module or your server\'s crontab):').'</p>';
+        $html .= '<p><code>'.Tools::safeOutput($cronUrl).'</code></p>';
+        $html .= '</div>';
+
+        return $html;
     }
 
     /**
@@ -400,7 +567,26 @@ class VatNumber extends TaxManagerModule
                         'label'     => $this->l('Check VAT number automatically'),
                         'name'      => 'VATNUMBER_CHECKING',
                         'is_bool'   => true,
-                        'desc'      => $this->l('This uses the official web service of the European Community. On web service outages (they have been seen quite frequently), VAT numbers get accepted anyways to not disrupt the customer. Such events get logged to allow you to verify the number manually. If you also want to receive email on such events, set \'Minimum severity level\' in Advanced Parameters -> Logs to 4 or lower.'),
+                        'desc'      => $this->l('This uses VIES, the official web service of the European Community. Confirmed numbers are cached locally, so repeated checks need no network access. On web service outages (they have been seen quite frequently), VAT numbers get accepted provisionally to not disrupt the customer, and get re-checked automatically by the scheduled task below. Such events get logged; if you also want to receive email on such events, set \'Minimum severity level\' in Advanced Parameters -> Logs to 3 or lower.'),
+                        'values' => [
+                            [
+                                'id'    => 'active_on',
+                                'value' => 1,
+                                'label' => $this->l('Enabled')
+                            ],
+                            [
+                                'id'    => 'active_off',
+                                'value' => 0,
+                                'label' => $this->l('Disabled')
+                            ],
+                        ],
+                    ],
+                    [
+                        'type'      => 'switch',
+                        'label'     => $this->l('Exempt only after successful check'),
+                        'name'      => 'VATNUMBER_REQUIRE_VALIDATION',
+                        'is_bool'   => true,
+                        'desc'      => $this->l('Disabled (default): customers get the VAT exemption immediately, even while their number is still awaiting verification. Enabled: customers keep paying VAT until VIES has confirmed their number. Enabled is safer for you, disabled is friendlier for the customer. Only relevant when automatic checking is enabled.'),
                         'values' => [
                             [
                                 'id'    => 'active_on',
@@ -481,6 +667,7 @@ class VatNumber extends TaxManagerModule
             'VATNUMBER_COUNTRY' => Tools::getValue('VATNUMBER_COUNTRY', Configuration::get('VATNUMBER_COUNTRY')),
             'VATNUMBER_MANUAL' => Tools::getValue('VATNUMBER_MANUAL', Configuration::get('VATNUMBER_MANUAL')),
             'VATNUMBER_CHECKING' => Tools::getValue('VATNUMBER_CHECKING', Configuration::get('VATNUMBER_CHECKING')),
+            'VATNUMBER_REQUIRE_VALIDATION' => Tools::getValue('VATNUMBER_REQUIRE_VALIDATION', Configuration::get('VATNUMBER_REQUIRE_VALIDATION')),
             'CHECK_VATNUMBER' => Tools::getValue('CHECK_VATNUMBER', ''),
         ];
     }
@@ -555,15 +742,19 @@ class VatNumber extends TaxManagerModule
     protected function getCheckResult()
     {
         if (Tools::isSubmit('CHECK_VATNUMBER_PROCESS')) {
-            $vatnumber = Tools::getValue('CHECK_VATNUMBER');
-            $prefix = strtoupper(substr($vatnumber, 0, 2));
-            if (!$prefix || !array_key_exists($prefix, static::getPrefixIntracomVAT())) {
+            $vatnumber = VatNumberCheck::normalize(Tools::getValue('CHECK_VATNUMBER'));
+            $prefix = substr($vatnumber, 0, 2);
+            if (!$prefix || !in_array($prefix, static::getPrefixIntracomVAT())) {
                 return '<p class="alert alert-danger">'.Tools::displayError("Invalid vat number prefix").'</p>';
             }
+            if (!VatNumberFormat::isValid($prefix, substr($vatnumber, 2))) {
+                return '<p class="alert alert-danger">'.Tools::displayError('VAT number format is invalid for this country.').'</p>';
+            }
             try {
-                $res = $this->checkVat($vatnumber);
-                if ($res) {
-                    $ret = '<p class="alert alert-success">'.sprintf($this->l('%s is a valid VAT number'), $vatnumber).'<p>';
+                $res = VatNumberViesClient::checkVat($prefix, substr($vatnumber, 2));
+                if ($res['valid']) {
+                    VatNumberCheck::recordResult($vatnumber, $prefix, VatNumberCheck::STATUS_VALID, VatNumberCheck::SOURCE_VIES, $res['requestIdentifier'], $res['name'], $res['address']);
+                    $ret = '<p class="alert alert-success">'.sprintf($this->l('%s is a valid VAT number'), $vatnumber).'</p>';
                     $ret .= '<p class="well">';
                     foreach ($res as $key => $value) {
                         $ret .= "<b>".Tools::safeOutput($key).":</b>&nbsp;".Tools::safeOutput($value)."<br/>";
@@ -571,8 +762,11 @@ class VatNumber extends TaxManagerModule
                     $ret .= '</p>';
                     return $ret;
                 } else {
+                    VatNumberCheck::recordResult($vatnumber, $prefix, VatNumberCheck::STATUS_INVALID, VatNumberCheck::SOURCE_VIES, $res['requestIdentifier']);
                     return '<p class="alert alert-warning">'.sprintf($this->l('%s is NOT a valid VAT number'), $vatnumber).'</p>';
                 }
+            } catch (VatNumberViesUnavailableException $e) {
+                return '<p class="alert alert-warning">'.sprintf($this->l('VIES could not be reached (%s). Try again later.'), Tools::safeOutput($e->getMessage())).'</p>';
             } catch (Exception $e) {
                 return '<p class="alert alert-danger">'.Tools::safeOutput($e->getMessage()).'</p>';
             }
