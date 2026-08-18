@@ -24,7 +24,11 @@ Validation happens in three layers, cheapest first:
    country prefix (NL, DE, ...) must be a known EU code, the prefix must
    match the address country, and the number must match the official format
    of that country (for example NL: 9 digits, B, 2 digits). Typos are caught
-   here, instantly.
+   here, instantly. Common input quirks are corrected automatically: spaces,
+   dots and dashes are ignored, Greek numbers typed with the GR prefix are
+   treated as EL, legacy 9 digit Belgian numbers get their leading zero
+   restored, and Northern Ireland businesses (GB address, XI number) are
+   supported.
 2. **Local cache.** Numbers that VIES confirmed in the last 30 days are
    accepted from the local database without contacting VIES again.
 3. **VIES.** Only when needed, the module asks VIES (the EU's official VAT
@@ -40,27 +44,44 @@ VIES and the member state databases behind it have outages regularly. The
 module never blocks a customer because of that:
 
 - The number is accepted **provisionally** (it already passed the local
-  format checks) and recorded as "unverified".
+  format checks) and recorded as "unverified". A number that VIES confirmed
+  earlier keeps its confirmed status and its consultation ID; an outage
+  never destroys proof of a past verification.
 - The event is logged (severity 3). Set "Minimum severity level" in Advanced
   Parameters > Logs to 3 to get these by email.
+- A circuit breaker stops all VIES requests for 5 minutes after a failure,
+  so a struggling VIES is not hammered and your shop's IP does not get rate
+  limited.
 - A cron job re-checks unverified numbers until VIES answers, and re-checks
   confirmed numbers every 180 days (VAT registrations expire). If VIES later
   rejects a number, a log entry (severity 3) tells you to review that
-  customer's orders and re-invoice VAT if needed.
+  customer's orders and re-invoice VAT if needed - and from that moment the
+  number no longer receives the exemption, in any mode.
 
 Set up the cron by calling the URL shown on the module's configuration page
 from a scheduled task (for example hourly, via the cronjobs module or your
-server's crontab).
+server's crontab). The configuration page warns you when numbers are
+waiting and the task has not run in the last 24 hours. The endpoint also
+works while the shop is in maintenance mode.
 
 ## Orders while a number is unverified
 
 You choose, with the "Exempt only after successful check" setting:
 
 - **Disabled (default, customer friendly):** the exemption applies
-  immediately. If the number later turns out invalid, you are notified and
-  can re-invoice the VAT.
+  immediately. If the number later turns out invalid, you are notified, the
+  exemption stops for future orders, and you can re-invoice the VAT for
+  orders already placed.
 - **Enabled (merchant safe):** the customer keeps paying VAT until VIES has
   confirmed the number. Refund the VAT afterwards if you wish.
+
+When upgrading from an older module version, all VAT numbers already stored
+on customer addresses are queued for background verification, so enabling
+the strict mode does not suddenly withdraw the exemption from existing
+customers before their numbers were ever checked.
+
+Back office address edits by employees are validated the same way as
+customer edits since 2.7.0.
 
 ## Settings overview
 

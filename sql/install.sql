@@ -7,9 +7,10 @@ CREATE TABLE IF NOT EXISTS `PREFIX_vatnumber_check` (
     `vies_request_id`    VARCHAR(64)  NOT NULL DEFAULT '',
     `trader_name`        VARCHAR(255) NOT NULL DEFAULT '',
     `trader_address`     VARCHAR(255) NOT NULL DEFAULT '',
+    `id_address`         INT(11) UNSIGNED NOT NULL DEFAULT 0,
     `date_add`           DATETIME     NOT NULL,
     `date_upd`           DATETIME     NOT NULL,
     PRIMARY KEY (`id_vatnumber_check`),
     UNIQUE KEY `vat_number` (`vat_number`),
     KEY `status` (`status`)
-) ENGINE=ENGINE_TYPE DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+) ENGINE=ENGINE_TYPE DEFAULT CHARSET=CHARSET_TYPE COLLATE=COLLATE_TYPE

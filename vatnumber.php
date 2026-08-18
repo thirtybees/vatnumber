@@ -1,6 +1,6 @@
 <?php
 /**
- * Copyright (C) 2017-2024 thirty bees
+ * Copyright (C) 2017-2026 thirty bees
  * Copyright (C) 2007-2016 PrestaShop SA
  *
  * thirty bees is an extension to the PrestaShop software by PrestaShop SA.
@@ -17,7 +17,7 @@
  *
  * @author    thirty bees <modules@thirtybees.com>
  * @author    PrestaShop SA <contact@prestashop.com>
- * @copyright 2017-2024 thirty bees
+ * @copyright 2017-2026 thirty bees
  * @copyright 2007-2016 PrestaShop SA
  * @license   Academic Free License (AFL 3.0)
  * PrestaShop is an internationally registered trademark of PrestaShop SA.
@@ -37,7 +37,31 @@ require_once __DIR__.'/classes/VatNumberViesClient.php';
  */
 class VatNumber extends TaxManagerModule
 {
+    /**
+     * Sentinel stored in Address->vat_number for manual (checkbox based) VAT
+     * exemptions. Only the module itself may set it; typed input matching it
+     * is rejected unless manual exemptions are enabled.
+     */
     const VAT_EXEMPTION_FLAG = 'vatExemption';
+
+    /** VAT numbers checked per cron run, to respect VIES rate limits. */
+    const CRON_BATCH_SIZE = 20;
+
+    /**
+     * Seconds the circuit breaker stays open after a VIES failure. While
+     * open, no new VIES requests are made and numbers are accepted
+     * provisionally right away, so a struggling VIES is not hammered.
+     */
+    const VIES_BREAKER_SECONDS = 300;
+
+    /** Hours without a cron run before the config page shows a warning. */
+    const CRON_STALE_HOURS = 24;
+
+    /** @var array Controllers this module ships. */
+    public $controllers = ['cron'];
+
+    /** @var string HTML result of the manual BO check, set by getContent(). */
+    protected $checkResultHtml = '';
 
     /**
      * @throws PrestaShopException
@@ -62,8 +86,11 @@ class VatNumber extends TaxManagerModule
 
         $this->displayName = $this->l('VAT Exemption Module');
         $this->description = $this->l('This module adds handling of VAT exemptions for various tax laws.');
-        $this->tb_versions_compliancy = '>= 1.0.8';
-        $this->tb_min_version = '1.0.8';
+        // The actionObjectAddressValidateController hook this module depends
+        // on was introduced in thirty bees 1.6.0. On older cores the module
+        // would install but never validate anything.
+        $this->tb_versions_compliancy = '>= 1.6.0';
+        $this->tb_min_version = '1.6.0';
         $this->ps_versions_compliancy = ['min' => '1.6', 'max' => _PS_VERSION_];
     }
 
@@ -78,15 +105,36 @@ class VatNumber extends TaxManagerModule
             parent::install() &&
             $this->executeSqlScript('install') &&
             $this->registerHook('actionObjectAddressValidateController') &&
+            $this->registerHook('actionObjectAddressAddBefore') &&
+            $this->registerHook('actionObjectAddressUpdateBefore') &&
             Configuration::updateValue('VATNUMBER_MANAGEMENT', 1) &&
             Configuration::updateValue('VATNUMBER_REQUIRE_VALIDATION', 0) &&
-            Configuration::updateValue('VATNUMBER_CRON_TOKEN', Tools::passwdGen(16))
+            Configuration::updateValue('VATNUMBER_CRON_TOKEN', static::generateCronToken())
         );
     }
 
     /**
-     * Execute one of the SQL scripts in sql/. Placeholders PREFIX_ and
-     * ENGINE_TYPE get replaced with the shop's actual values.
+     * Generate the secret for the cron endpoint and verify it actually is
+     * random: core's passwdGen() silently degrades to a constant string when
+     * the system random source fails, which would leave the endpoint open.
+     *
+     * @return string
+     * @throws PrestaShopException
+     */
+    public static function generateCronToken()
+    {
+        $token = Tools::passwdGen(32);
+        if (strlen($token) !== 32 || count(array_unique(str_split($token))) < 8) {
+            throw new PrestaShopException('Failed to generate a secure cron token');
+        }
+
+        return $token;
+    }
+
+    /**
+     * Execute one of the SQL scripts in sql/. Placeholders PREFIX_,
+     * ENGINE_TYPE, CHARSET_TYPE and COLLATE_TYPE get replaced with the
+     * shop's actual values.
      *
      * @param string $script Script name without path and extension.
      *
@@ -95,13 +143,23 @@ class VatNumber extends TaxManagerModule
      */
     public function executeSqlScript($script)
     {
+        if (!in_array($script, ['install', 'uninstall'], true)) {
+            throw new PrestaShopException('Unknown SQL script: '.$script);
+        }
         $file = __DIR__.'/sql/'.$script.'.sql';
+        if (!file_exists($file)) {
+            throw new PrestaShopException('SQL script not found: '.$file);
+        }
         $content = file_get_contents($file);
         if ($content === false) {
             throw new PrestaShopException('Failed to read SQL script: '.$file);
         }
-        $content = str_replace(['PREFIX_', 'ENGINE_TYPE'], [_DB_PREFIX_, _MYSQL_ENGINE_], $content);
-        foreach (array_filter(array_map('trim', explode(';', $content))) as $statement) {
+        $content = str_replace(
+            ['PREFIX_', 'ENGINE_TYPE', 'CHARSET_TYPE', 'COLLATE_TYPE'],
+            [_DB_PREFIX_, _MYSQL_ENGINE_, 'utf8mb4', 'utf8mb4_unicode_ci'],
+            $content
+        );
+        foreach (array_filter(array_map('trim', preg_split("/;\s*[\r\n]+/", $content))) as $statement) {
             if (!Db::getInstance()->execute($statement)) {
                 throw new PrestaShopException('SQL script '.$script.' failed: '.Db::getInstance()->getMsgError());
             }
@@ -124,20 +182,22 @@ class VatNumber extends TaxManagerModule
                && Configuration::deleteByName('VATNUMBER_COUNTRY')
                && Configuration::deleteByName('VATNUMBER_MANAGEMENT')
                && Configuration::deleteByName('VATNUMBER_REQUIRE_VALIDATION')
-               && Configuration::deleteByName('VATNUMBER_CRON_TOKEN');
+               && Configuration::deleteByName('VATNUMBER_CRON_TOKEN')
+               && Configuration::deleteByName('VATNUMBER_VIES_DOWN_UNTIL')
+               && Configuration::deleteByName('VATNUMBER_CRON_LAST_RUN');
     }
 
     /**
      * @param bool $forceAll
      *
-     * @return void
+     * @return bool
      * @throws PrestaShopDatabaseException
      * @throws PrestaShopException
      */
     public function enable($forceAll = false)
     {
-        parent::enable($forceAll);
-        Configuration::updateValue('VATNUMBER_MANAGEMENT', 1);
+        return parent::enable($forceAll)
+            && Configuration::updateValue('VATNUMBER_MANAGEMENT', 1);
     }
 
     /**
@@ -153,6 +213,9 @@ class VatNumber extends TaxManagerModule
     }
 
     /**
+     * Front office address validation. Core collects the returned error
+     * strings and blocks the address save with them.
+     *
      * @param array $params
      *
      * @return string[]
@@ -170,6 +233,59 @@ class VatNumber extends TaxManagerModule
     }
 
     /**
+     * Back office address saves do not pass through validateController(), so
+     * without this an employee could store an unchecked VAT number. These
+     * Before hooks cannot return errors; throwing blocks the save loudly.
+     *
+     * @param array $params
+     *
+     * @return void
+     * @throws PrestaShopException
+     */
+    public function hookActionObjectAddressAddBefore($params)
+    {
+        $this->validateAddressFromBackOffice($params);
+    }
+
+    /**
+     * @param array $params
+     *
+     * @return void
+     * @throws PrestaShopException
+     */
+    public function hookActionObjectAddressUpdateBefore($params)
+    {
+        $this->validateAddressFromBackOffice($params);
+    }
+
+    /**
+     * Validate an address on back office saves only. Front office saves are
+     * already covered by the ValidateController hook; running twice would
+     * double the VIES traffic.
+     *
+     * @param array $params
+     *
+     * @return void
+     * @throws PrestaShopException
+     */
+    protected function validateAddressFromBackOffice($params)
+    {
+        $controller = $this->context->controller;
+        if (!($controller instanceof Controller) || $controller->controller_type !== 'admin') {
+            return;
+        }
+        if (!isset($params['object']) || !($params['object'] instanceof Address)) {
+            return;
+        }
+        $error = static::validateNumber($params['object']);
+        if (is_string($error)) {
+            throw new PrestaShopException($error);
+        }
+    }
+
+    /**
+     * Map of address country ISO code to VIES VAT number prefix.
+     *
      * @return string[]
      */
     public static function getPrefixIntracomVAT()
@@ -183,7 +299,7 @@ class VatNumber extends TaxManagerModule
             'FX' => 'FR', //France metropolitaine
             'DE' => 'DE', //Germany
             'GR' => 'EL', //Greece
-            'IE' => 'IE', //Irland
+            'IE' => 'IE', //Ireland
             'IT' => 'IT', //Italy
             'LU' => 'LU', //Luxembourg
             'NL' => 'NL', //Netherlands
@@ -210,6 +326,11 @@ class VatNumber extends TaxManagerModule
     }
 
     /**
+     * Whether the VAT number field applies to a country. GB is included
+     * because Northern Ireland businesses have GB addresses but XI VAT
+     * numbers under the EU-UK protocol; thirty bees has no separate XI
+     * country.
+     *
      * @param int $idCountry
      * @return boolean
      * @throws PrestaShopException
@@ -220,14 +341,15 @@ class VatNumber extends TaxManagerModule
         if ($idCountry) {
             $isoCode = Country::getIsoById($idCountry);
             if ($isoCode) {
-                return array_key_exists($isoCode, static::getPrefixIntracomVAT());
+                return $isoCode === 'GB'
+                    || array_key_exists($isoCode, static::getPrefixIntracomVAT());
             }
         }
         return false;
     }
 
     /**
-     * Test wether a given number is a valid one. Validation tests largely
+     * Test whether a given number is a valid one. Validation tests largely
      * depend on the current module configuration. This method works for all
      * configuration modes.
      *
@@ -240,6 +362,9 @@ class VatNumber extends TaxManagerModule
      */
     public static function validateNumber(AddressCore $address)
     {
+        $manualAllowed = Configuration::get('VATNUMBER_MANAGEMENT')
+            && Configuration::get('VATNUMBER_MANUAL');
+
         /*
          * Handle the VAT exemption flag. In case we also have a VAT number,
          * we use that. Else we set vat_number to a standard value.
@@ -248,8 +373,18 @@ class VatNumber extends TaxManagerModule
          * 'vat_exemption' to the Address class, keeping compatibility with
          * older versions.
          */
-        if (Tools::getValue('vat_exemption') && $address->vat_number == '') {
+        if ($manualAllowed && Tools::getValue('vat_exemption') && $address->vat_number == '') {
             $address->vat_number = static::VAT_EXEMPTION_FLAG;
+        }
+
+        /*
+         * The sentinel is stored in a customer writable field, so it can
+         * also be typed in directly. That equals ticking the exemption
+         * checkbox, which is only acceptable while manual exemptions are
+         * enabled. Otherwise it would be a self service tax exemption.
+         */
+        if (trim((string)$address->vat_number) === static::VAT_EXEMPTION_FLAG && !$manualAllowed) {
+            return Tools::displayError('Invalid VAT number.');
         }
 
         if (Configuration::get('VATNUMBER_MANAGEMENT') && !Configuration::get('VATNUMBER_MANUAL')) {
@@ -264,29 +399,34 @@ class VatNumber extends TaxManagerModule
                     return Tools::displayError('VAT number, but no company name given.');
                 }
 
-                // Check VAT number prefix
-                $vatNumberPrefix = strtoupper(substr($vatNumber, 0, 2));
+                // Check the prefix on the normalized number, so that spaces,
+                // dots and the common GR-instead-of-EL spelling for Greece
+                // do not trip the customer up.
+                $normalized = VatNumberCheck::normalize($vatNumber);
+                $vatNumberPrefix = substr($normalized, 0, 2);
                 $vatNumberIsoCode = array_search($vatNumberPrefix, static::getPrefixIntracomVAT());
                 if ($vatNumberIsoCode === false) {
-                    return Tools::displayError('Invalid VAT number prefix');
+                    return Tools::displayError('Invalid VAT number prefix.');
                 }
 
-                // Country validation with VAT number
+                // Country validation with VAT number. XI numbers belong to
+                // Northern Ireland businesses, whose address country is GB.
                 $vatNumberIsoCode = strtoupper($vatNumberIsoCode);
                 $isoAddress = strtoupper(Country::getIsoById($countryId));
-                if ($isoAddress !== $vatNumberIsoCode) {
+                $countryMatches = ($isoAddress === $vatNumberIsoCode)
+                    || ($vatNumberPrefix === 'XI' && $isoAddress === 'GB');
+                if (!$countryMatches) {
                     return Tools::displayError('VAT number inconsistent with country.');
                 }
 
                 // Local format validation. Runs offline and catches typos
                 // before VIES is ever contacted.
-                $normalized = VatNumberCheck::normalize($vatNumber);
                 if (!VatNumberFormat::isValid($vatNumberPrefix, substr($normalized, 2))) {
                     return Tools::displayError('VAT number format is invalid for this country.');
                 }
 
                 if (Configuration::get('VATNUMBER_CHECKING')) {
-                    $errors = static::WebServiceCheck($normalized);
+                    $errors = static::webServiceCheck($normalized, (int) $address->id);
                     if (count($errors)) {
                         return $errors[0];
                     }
@@ -304,21 +444,25 @@ class VatNumber extends TaxManagerModule
      * Flow:
      *   1. A VIES confirmed 'valid' result younger than
      *      VatNumberCheck::CACHE_DAYS is served from the local database, no
-     *      network access.
-     *   2. Otherwise VIES is asked (REST, strict timeouts).
-     *   3. When VIES cannot answer, the number is accepted provisionally,
+     *      network access. A recent 'invalid' answer is also served from
+     *      cache for a short while, so repeated saves do not hammer VIES.
+     *   2. When the circuit breaker is open (VIES failed within the last
+     *      VIES_BREAKER_SECONDS), no request is attempted at all.
+     *   3. Otherwise VIES is asked (REST first, SOAP fallback).
+     *   4. When VIES cannot answer, the number is accepted provisionally,
      *      recorded as 'unverified' and logged. The cron re-checks it later.
+     *      An existing 'valid' record is never downgraded by an outage: the
+     *      last confirmed state and its consultation ID are kept.
      *
-     * @param string $vatNumber The VAT number, including country code,
-     *                          preferably normalized.
+     * @param string $vatNumber The VAT number, including country code.
+     * @param int $idAddress Address the number belongs to, if known.
      *
      * @return array Error messages. An empty array means the number is
      *               valid, cached valid, or provisionally accepted.
      *
-     * @since 1.0.0
-     * @since 2.7.0 Cache and outage fallback.
+     * @throws PrestaShopException
      */
-    public static function WebServiceCheck($vatNumber)
+    public static function webServiceCheck($vatNumber, $idAddress = 0)
     {
         $normalized = VatNumberCheck::normalize($vatNumber);
         if ($normalized === '') {
@@ -332,103 +476,132 @@ class VatNumber extends TaxManagerModule
             if ($check && $check->isFreshValid()) {
                 return [];
             }
+            if ($check && $check->isFreshInvalid()) {
+                return [Tools::displayError('VAT number not registered at your tax authorities.')];
+            }
+
+            if ((int) Configuration::get('VATNUMBER_VIES_DOWN_UNTIL') > time()) {
+                // Circuit breaker open: VIES failed very recently, do not
+                // send another request, accept provisionally right away.
+                static::acceptProvisionally($check, $normalized, $countryCode, $idAddress);
+
+                return [];
+            }
 
             try {
                 $result = VatNumberViesClient::checkVat($countryCode, $plainNumber);
             } catch (VatNumberViesUnavailableException $e) {
-                // VIES is down. Accept provisionally instead of blocking the
-                // customer, remember that verification is still owed and log
-                // loudly so the merchant can follow up.
-                VatNumberCheck::recordResult($normalized, $countryCode, VatNumberCheck::STATUS_UNVERIFIED, VatNumberCheck::SOURCE_FORMAT);
+                Configuration::updateValue('VATNUMBER_VIES_DOWN_UNTIL', time() + static::VIES_BREAKER_SECONDS);
+                static::acceptProvisionally($check, $normalized, $countryCode, $idAddress);
                 PrestaShopLogger::addLog('vatnumber: VIES unavailable, VAT number '.$normalized.' accepted provisionally. Reason: '.$e->getMessage(), 3);
 
                 return [];
             }
 
             if ($result['valid']) {
-                VatNumberCheck::recordResult($normalized, $countryCode, VatNumberCheck::STATUS_VALID, VatNumberCheck::SOURCE_VIES, $result['requestIdentifier'], $result['name'], $result['address']);
+                VatNumberCheck::recordResult($normalized, $countryCode, VatNumberCheck::STATUS_VALID, VatNumberCheck::SOURCE_VIES, $result['requestIdentifier'], $result['name'], $result['address'], $idAddress);
 
                 return [];
             }
 
-            VatNumberCheck::recordResult($normalized, $countryCode, VatNumberCheck::STATUS_INVALID, VatNumberCheck::SOURCE_VIES, $result['requestIdentifier']);
+            VatNumberCheck::recordResult($normalized, $countryCode, VatNumberCheck::STATUS_INVALID, VatNumberCheck::SOURCE_VIES, $result['requestIdentifier'], '', '', $idAddress);
 
             return [Tools::displayError('VAT number not registered at your tax authorities.')];
         } catch (Exception $e) {
+            // Log the full cause; show the customer only a generic message.
+            // Raw exception text can contain database details.
             PrestaShopLogger::addLog('vatnumber: VAT number check failed for '.$normalized.': '.$e->getMessage(), 3);
 
-            return [sprintf(Tools::displayError('Failed to validate VAT number: %s'), $e->getMessage())];
+            return [Tools::displayError('Failed to validate the VAT number. Please try again later.')];
         }
     }
 
     /**
-     * True when a VAT number has a VIES confirmed 'valid' record in the
-     * local database. Used by the tax manager in strict mode: exemption only
-     * after successful verification.
+     * Record a provisional acceptance during a VIES outage. An existing
+     * 'valid' record is left untouched, so an outage never destroys a
+     * confirmed verification or its consultation ID.
      *
-     * @param string $vatNumber
+     * @param VatNumberCheck|null $check Existing record, if any.
+     * @param string $normalized
+     * @param string $countryCode
+     * @param int $idAddress
      *
-     * @return bool
+     * @return void
      * @throws PrestaShopException
      */
-    public static function isVerifiedValid($vatNumber)
+    protected static function acceptProvisionally($check, $normalized, $countryCode, $idAddress)
     {
-        $check = VatNumberCheck::findByNumber(VatNumberCheck::normalize($vatNumber));
-
-        return $check && $check->status === VatNumberCheck::STATUS_VALID;
+        if ($check && $check->status === VatNumberCheck::STATUS_VALID) {
+            return;
+        }
+        VatNumberCheck::recordResult($normalized, $countryCode, VatNumberCheck::STATUS_UNVERIFIED, VatNumberCheck::SOURCE_FORMAT, '', '', '', $idAddress);
     }
 
     /**
      * Work through VAT numbers that still need attention from VIES: numbers
      * accepted provisionally during an outage, and valid numbers whose last
-     * check has become old (registrations expire). Called by the cron
+     * check has become old (registrations expire). Also purges old check
+     * records that no address references anymore. Called by the cron
      * controller.
      *
-     * @param int $limit Maximum numbers to check in one run, to respect
-     *                   VIES rate limits.
+     * @param int|null $limit Maximum numbers to check in one run, defaults
+     *                        to CRON_BATCH_SIZE.
      *
-     * @return array Summary: numbers checked, confirmed, rejected, and
-     *               whether VIES was reachable.
+     * @return array Summary: numbers checked, confirmed, rejected, failed,
+     *               purged, still pending, and whether VIES was reachable.
      *
      * @throws PrestaShopException
      */
-    public static function runBackgroundChecks($limit = 20)
+    public static function runBackgroundChecks($limit = null)
     {
-        $limit = max(1, (int) $limit);
+        $limit = max(1, (int) ($limit === null ? static::CRON_BATCH_SIZE : $limit));
+
+        $summary = [
+            'checked'   => 0,
+            'confirmed' => 0,
+            'rejected'  => 0,
+            'failed'    => 0,
+            'purged'    => VatNumberCheck::purgeOrphaned(),
+            'pending'   => 0,
+            'vies_down' => false,
+        ];
+
         $rows = VatNumberCheck::getPending($limit);
         $remaining = $limit - count($rows);
         if ($remaining > 0) {
             $rows = array_merge($rows, VatNumberCheck::getStale($remaining));
         }
 
-        $summary = [
-            'checked'   => 0,
-            'confirmed' => 0,
-            'rejected'  => 0,
-            'pending'   => 0,
-            'vies_down' => false,
-        ];
         $rejected = [];
-
         foreach ($rows as $row) {
             try {
                 $result = VatNumberViesClient::checkVat($row['country_code'], substr($row['vat_number'], 2));
             } catch (VatNumberViesUnavailableException $e) {
                 // Still down, or down again. Stop the run, the rest would
                 // fail the same way. Numbers stay 'unverified'.
+                Configuration::updateValue('VATNUMBER_VIES_DOWN_UNTIL', time() + static::VIES_BREAKER_SECONDS);
                 PrestaShopLogger::addLog('vatnumber cron: VIES unavailable, stopping this run. Reason: '.$e->getMessage(), 2);
                 $summary['vies_down'] = true;
                 break;
+            } catch (Exception $e) {
+                PrestaShopLogger::addLog('vatnumber cron: check of '.$row['vat_number'].' failed: '.$e->getMessage(), 3);
+                $summary['failed']++;
+                continue;
             }
 
             $summary['checked']++;
-            if ($result['valid']) {
-                VatNumberCheck::recordResult($row['vat_number'], $row['country_code'], VatNumberCheck::STATUS_VALID, VatNumberCheck::SOURCE_VIES, $result['requestIdentifier'], $result['name'], $result['address']);
-                $summary['confirmed']++;
-            } else {
-                VatNumberCheck::recordResult($row['vat_number'], $row['country_code'], VatNumberCheck::STATUS_INVALID, VatNumberCheck::SOURCE_VIES, $result['requestIdentifier']);
-                $summary['rejected']++;
-                $rejected[] = $row['vat_number'];
+            try {
+                if ($result['valid']) {
+                    VatNumberCheck::recordResult($row['vat_number'], $row['country_code'], VatNumberCheck::STATUS_VALID, VatNumberCheck::SOURCE_VIES, $result['requestIdentifier'], $result['name'], $result['address']);
+                    $summary['confirmed']++;
+                } else {
+                    VatNumberCheck::recordResult($row['vat_number'], $row['country_code'], VatNumberCheck::STATUS_INVALID, VatNumberCheck::SOURCE_VIES, $result['requestIdentifier']);
+                    $summary['rejected']++;
+                    $rejected[] = $row['vat_number'];
+                }
+            } catch (Exception $e) {
+                PrestaShopLogger::addLog('vatnumber cron: saving result for '.$row['vat_number'].' failed: '.$e->getMessage(), 3);
+                $summary['failed']++;
             }
         }
 
@@ -436,10 +609,17 @@ class VatNumber extends TaxManagerModule
             // Severity 3 so merchants with email logging configured get
             // notified: these customers received an exemption that VIES now
             // says was not justified.
-            PrestaShopLogger::addLog('vatnumber cron: VIES rejected VAT number(s) '.implode(', ', $rejected).'. Review the orders of these customers, VAT may have to be re-invoiced.', 3);
+            $shown = array_slice($rejected, 0, 20);
+            $message = 'vatnumber cron: VIES rejected VAT number(s) '.implode(', ', $shown);
+            if (count($rejected) > count($shown)) {
+                $message .= sprintf(' and %d more', count($rejected) - count($shown));
+            }
+            $message .= '. Review the orders of these customers, VAT may have to be re-invoiced.';
+            PrestaShopLogger::addLog($message, 3);
         }
 
         $summary['pending'] = VatNumberCheck::countPending();
+        Configuration::updateValue('VATNUMBER_CRON_LAST_RUN', time());
 
         return $summary;
     }
@@ -448,31 +628,53 @@ class VatNumber extends TaxManagerModule
      * @return string
      * @throws PrestaShopException
      * @throws SmartyException
-     * @since 1.0.0
-     * @since 2.1.0 Added VATNUMBER_MANUAL handling.
      */
     public function getContent()
     {
         $echo = '';
 
         if (Tools::isSubmit('SAVE_SETTINGS')) {
-            if (Configuration::updateValue('VATNUMBER_COUNTRY', (int) Tools::getValue('VATNUMBER_COUNTRY')) &&
-                Configuration::updateValue('VATNUMBER_MANUAL', (bool) Tools::getValue('VATNUMBER_MANUAL')) &&
-                Configuration::updateValue('VATNUMBER_CHECKING', (bool) Tools::getValue('VATNUMBER_CHECKING')) &&
-                Configuration::updateValue('VATNUMBER_REQUIRE_VALIDATION', (bool) Tools::getValue('VATNUMBER_REQUIRE_VALIDATION'))
-            ) {
-                $echo = $this->displayConfirmation($this->l('Settings updated successfully.'));
-            } else {
-                $echo = $this->displayError($this->l('Failed to update settings.'));
-            }
+            $echo = $this->processSaveSettings();
+        }
+        $this->checkResultHtml = '';
+        if (Tools::isSubmit('CHECK_VATNUMBER_PROCESS')) {
+            $this->checkResultHtml = $this->processVatNumberCheck();
         }
 
         return $echo.$this->renderForm().$this->renderStatusPanel();
     }
 
     /**
-     * Small status panel below the settings: how many numbers still await
-     * verification, and the cron URL that works through them.
+     * Save the settings form. Reports the exact keys that failed instead of
+     * a generic error, and never skips remaining settings after a failure.
+     *
+     * @return string Confirmation or error HTML.
+     * @throws PrestaShopException
+     */
+    protected function processSaveSettings()
+    {
+        $updates = [
+            'VATNUMBER_COUNTRY'            => (int) Tools::getValue('VATNUMBER_COUNTRY'),
+            'VATNUMBER_MANUAL'             => (bool) Tools::getValue('VATNUMBER_MANUAL'),
+            'VATNUMBER_CHECKING'           => (bool) Tools::getValue('VATNUMBER_CHECKING'),
+            'VATNUMBER_REQUIRE_VALIDATION' => (bool) Tools::getValue('VATNUMBER_REQUIRE_VALIDATION'),
+        ];
+        $failed = [];
+        foreach ($updates as $key => $value) {
+            if (!Configuration::updateValue($key, $value)) {
+                $failed[] = $key;
+            }
+        }
+        if ($failed) {
+            return $this->displayError(sprintf($this->l('Failed to update setting(s): %s'), implode(', ', $failed)));
+        }
+
+        return $this->displayConfirmation($this->l('Settings updated successfully.'));
+    }
+
+    /**
+     * Status panel below the settings: how many numbers still await
+     * verification, whether the cron actually runs, and the cron URL.
      *
      * @return string
      * @throws PrestaShopException
@@ -480,8 +682,9 @@ class VatNumber extends TaxManagerModule
     protected function renderStatusPanel()
     {
         $pending = VatNumberCheck::countPending();
+        $lastRun = (int) Configuration::get('VATNUMBER_CRON_LAST_RUN');
         $cronUrl = $this->context->link->getModuleLink(
-            'vatnumber',
+            $this->name,
             'cron',
             ['token' => Configuration::get('VATNUMBER_CRON_TOKEN')]
         );
@@ -492,6 +695,11 @@ class VatNumber extends TaxManagerModule
         } else {
             $html .= '<p class="alert alert-success">'.$this->l('No VAT numbers are awaiting verification.').'</p>';
         }
+        if ($pending && (time() - $lastRun) > static::CRON_STALE_HOURS * 3600) {
+            $html .= '<p class="alert alert-danger">'.sprintf($this->l('The verification task has not run in the last %d hours. Numbers will stay unverified until it runs. Set up the URL below as a scheduled task.'), static::CRON_STALE_HOURS).'</p>';
+        } elseif ($lastRun) {
+            $html .= '<p>'.sprintf($this->l('Last verification run: %s'), Tools::safeOutput(date('Y-m-d H:i:s', $lastRun))).'</p>';
+        }
         $html .= '<p>'.$this->l('To verify pending numbers and re-check old ones automatically, call this URL from a scheduled task (for example every hour, via the cronjobs module or your server\'s crontab):').'</p>';
         $html .= '<p><code>'.Tools::safeOutput($cronUrl).'</code></p>';
         $html .= '</div>';
@@ -500,22 +708,41 @@ class VatNumber extends TaxManagerModule
     }
 
     /**
-     * @throws PrestaShopException
-     * @throws SmartyException
-     * @since 1.0.0
-     * @since 2.1.0 Added VATNUMBER_MANUAL part.
+     * Shared on/off values block for switch inputs.
+     *
+     * @return array
      */
-    public function renderForm()
+    protected function getSwitchValues()
+    {
+        return [
+            [
+                'id'    => 'active_on',
+                'value' => 1,
+                'label' => $this->l('Enabled')
+            ],
+            [
+                'id'    => 'active_off',
+                'value' => 0,
+                'label' => $this->l('Disabled')
+            ],
+        ];
+    }
+
+    /**
+     * Settings form definition.
+     *
+     * @return array
+     * @throws PrestaShopException
+     */
+    protected function getSettingsForm()
     {
         $countries = Country::getCountries($this->context->language->id);
-
         $countriesFmt = [
             0 => [
                 'id' => 0,
                 'name' => $this->l('-- Choose a country --')
             ],
         ];
-
         foreach ($countries as $country) {
             $countriesFmt[] = [
                 'id'    => $country['id_country'],
@@ -523,7 +750,7 @@ class VatNumber extends TaxManagerModule
             ];
         }
 
-        $settingsForm = [
+        return [
             'form' => [
                 'legend' => [
                     'title' => $this->l('Settings'),
@@ -548,19 +775,8 @@ class VatNumber extends TaxManagerModule
                         'label'     => $this->l('Allow manual verification'),
                         'name'      => 'VATNUMBER_MANUAL',
                         'is_bool'   => true,
-                        'desc'      => $this->l('Enabling this adds a simple checkbox for VAT exemptions. Use this to allow VAT exemptions not related to a VAT number. You\'ll recognize a checked box by reading \''.static::VAT_EXEMPTION_FLAG.'\' in back office in the VAT number field in Customers -> Addresses.'),
-                        'values' => [
-                            [
-                                'id'    => 'active_on',
-                                'value' => 1,
-                                'label' => $this->l('Enabled')
-                            ],
-                            [
-                                'id'    => 'active_off',
-                                'value' => 0,
-                                'label' => $this->l('Disabled')
-                            ],
-                        ],
+                        'desc'      => sprintf($this->l('Enabling this adds a simple checkbox for VAT exemptions. Use this to allow VAT exemptions not related to a VAT number. You\'ll recognize a checked box by reading \'%s\' in back office in the VAT number field in Customers -> Addresses.'), static::VAT_EXEMPTION_FLAG),
+                        'values'    => $this->getSwitchValues(),
                     ],
                     [
                         'type'      => 'switch',
@@ -568,37 +784,15 @@ class VatNumber extends TaxManagerModule
                         'name'      => 'VATNUMBER_CHECKING',
                         'is_bool'   => true,
                         'desc'      => $this->l('This uses VIES, the official web service of the European Community. Confirmed numbers are cached locally, so repeated checks need no network access. On web service outages (they have been seen quite frequently), VAT numbers get accepted provisionally to not disrupt the customer, and get re-checked automatically by the scheduled task below. Such events get logged; if you also want to receive email on such events, set \'Minimum severity level\' in Advanced Parameters -> Logs to 3 or lower.'),
-                        'values' => [
-                            [
-                                'id'    => 'active_on',
-                                'value' => 1,
-                                'label' => $this->l('Enabled')
-                            ],
-                            [
-                                'id'    => 'active_off',
-                                'value' => 0,
-                                'label' => $this->l('Disabled')
-                            ],
-                        ],
+                        'values'    => $this->getSwitchValues(),
                     ],
                     [
                         'type'      => 'switch',
                         'label'     => $this->l('Exempt only after successful check'),
                         'name'      => 'VATNUMBER_REQUIRE_VALIDATION',
                         'is_bool'   => true,
-                        'desc'      => $this->l('Disabled (default): customers get the VAT exemption immediately, even while their number is still awaiting verification. Enabled: customers keep paying VAT until VIES has confirmed their number. Enabled is safer for you, disabled is friendlier for the customer. Only relevant when automatic checking is enabled.'),
-                        'values' => [
-                            [
-                                'id'    => 'active_on',
-                                'value' => 1,
-                                'label' => $this->l('Enabled')
-                            ],
-                            [
-                                'id'    => 'active_off',
-                                'value' => 0,
-                                'label' => $this->l('Disabled')
-                            ],
-                        ],
+                        'desc'      => $this->l('Disabled (default): customers get the VAT exemption immediately, even while their number is still awaiting verification. Enabled: customers keep paying VAT until VIES has confirmed their number. Enabled is safer for you, disabled is friendlier for the customer. Only relevant when automatic checking is enabled. Numbers that VIES rejected never get the exemption, in either mode.'),
+                        'values'    => $this->getSwitchValues(),
                     ],
                 ],
                 'submit' => [
@@ -607,8 +801,16 @@ class VatNumber extends TaxManagerModule
                 ],
             ],
         ];
+    }
 
-        $manualValidationForm = [
+    /**
+     * Manual check tool form definition.
+     *
+     * @return array
+     */
+    protected function getManualCheckForm()
+    {
+        return [
             'form' => [
                 'legend' => [
                     'title' => $this->l('VAT number validation'),
@@ -619,8 +821,7 @@ class VatNumber extends TaxManagerModule
                         'type'      => 'text',
                         'label'     => $this->l('VAT number'),
                         'name'      => 'CHECK_VATNUMBER',
-                        'is_bool'   => true,
-                        'desc'      => $this->l('VAT number including country prefix.') . $this->getCheckResult(),
+                        'desc'      => $this->l('VAT number including country prefix.').$this->checkResultHtml,
                     ]
                 ],
                 'submit' => [
@@ -629,7 +830,15 @@ class VatNumber extends TaxManagerModule
                 ],
             ],
         ];
+    }
 
+    /**
+     * @return string
+     * @throws PrestaShopException
+     * @throws SmartyException
+     */
+    public function renderForm()
+    {
         /** @var AdminController $controller */
         $controller = $this->context->controller;
         $helper = new HelperForm();
@@ -651,15 +860,14 @@ class VatNumber extends TaxManagerModule
         ];
 
         return (
-            $helper->generateForm([$settingsForm]) .
-            $helper->generateForm([$manualValidationForm])
+            $helper->generateForm([$this->getSettingsForm()]) .
+            $helper->generateForm([$this->getManualCheckForm()])
         );
     }
 
     /**
+     * @return array
      * @throws PrestaShopException
-     * @since 2.1.0 Added VATNUMBER_MANUAL handling.
-     * @since 1.0.0
      */
     public function getConfigFieldsValues()
     {
@@ -682,8 +890,6 @@ class VatNumber extends TaxManagerModule
      *
      * @todo As soon as we have a suitable hook system (see comment in
      *       Address:validateController()), this should become a hook.
-     *
-     * @since 2.1.0
      */
     public static function assignTemplateVars(Context $context)
     {
@@ -717,11 +923,6 @@ class VatNumber extends TaxManagerModule
      *       we want to store the 'vat_exemption' flag directly in the
      *       database, making this method obsolete. This would also make all
      *       the code for finding and calling this method in core obsolete.
-     *
-     * @todo As soon as we have a suitable hook system (see comment in
-     *       Address:validateController()), this should become a hook.
-     *
-     * @since 2.1.0
      */
     public static function adjustAddressForLayout($address)
     {
@@ -737,41 +938,43 @@ class VatNumber extends TaxManagerModule
     }
 
     /**
+     * Run the manual check from the module configuration page and build the
+     * result HTML. Performs a live VIES request and stores the result in the
+     * local cache, like a front office check would.
+     *
      * @return string
      */
-    protected function getCheckResult()
+    protected function processVatNumberCheck()
     {
-        if (Tools::isSubmit('CHECK_VATNUMBER_PROCESS')) {
-            $vatnumber = VatNumberCheck::normalize(Tools::getValue('CHECK_VATNUMBER'));
-            $prefix = substr($vatnumber, 0, 2);
-            if (!$prefix || !in_array($prefix, static::getPrefixIntracomVAT())) {
-                return '<p class="alert alert-danger">'.Tools::displayError("Invalid vat number prefix").'</p>';
-            }
-            if (!VatNumberFormat::isValid($prefix, substr($vatnumber, 2))) {
-                return '<p class="alert alert-danger">'.Tools::displayError('VAT number format is invalid for this country.').'</p>';
-            }
-            try {
-                $res = VatNumberViesClient::checkVat($prefix, substr($vatnumber, 2));
-                if ($res['valid']) {
-                    VatNumberCheck::recordResult($vatnumber, $prefix, VatNumberCheck::STATUS_VALID, VatNumberCheck::SOURCE_VIES, $res['requestIdentifier'], $res['name'], $res['address']);
-                    $ret = '<p class="alert alert-success">'.sprintf($this->l('%s is a valid VAT number'), $vatnumber).'</p>';
-                    $ret .= '<p class="well">';
-                    foreach ($res as $key => $value) {
-                        $ret .= "<b>".Tools::safeOutput($key).":</b>&nbsp;".Tools::safeOutput($value)."<br/>";
-                    }
-                    $ret .= '</p>';
-                    return $ret;
-                } else {
-                    VatNumberCheck::recordResult($vatnumber, $prefix, VatNumberCheck::STATUS_INVALID, VatNumberCheck::SOURCE_VIES, $res['requestIdentifier']);
-                    return '<p class="alert alert-warning">'.sprintf($this->l('%s is NOT a valid VAT number'), $vatnumber).'</p>';
-                }
-            } catch (VatNumberViesUnavailableException $e) {
-                return '<p class="alert alert-warning">'.sprintf($this->l('VIES could not be reached (%s). Try again later.'), Tools::safeOutput($e->getMessage())).'</p>';
-            } catch (Exception $e) {
-                return '<p class="alert alert-danger">'.Tools::safeOutput($e->getMessage()).'</p>';
-            }
+        $vatnumber = VatNumberCheck::normalize(Tools::getValue('CHECK_VATNUMBER'));
+        $prefix = substr($vatnumber, 0, 2);
+        if (!$prefix || !in_array($prefix, static::getPrefixIntracomVAT())) {
+            return '<p class="alert alert-danger">'.Tools::displayError('Invalid VAT number prefix.').'</p>';
         }
-        return '';
+        if (!VatNumberFormat::isValid($prefix, substr($vatnumber, 2))) {
+            return '<p class="alert alert-danger">'.Tools::displayError('VAT number format is invalid for this country.').'</p>';
+        }
+        try {
+            $res = VatNumberViesClient::checkVat($prefix, substr($vatnumber, 2));
+            if ($res['valid']) {
+                VatNumberCheck::recordResult($vatnumber, $prefix, VatNumberCheck::STATUS_VALID, VatNumberCheck::SOURCE_VIES, $res['requestIdentifier'], $res['name'], $res['address']);
+                $ret = '<p class="alert alert-success">'.sprintf($this->l('%s is a valid VAT number'), $vatnumber).'</p>';
+                $ret .= '<p class="well">';
+                $ret .= '<b>'.$this->l('Trader name').':</b>&nbsp;'.Tools::safeOutput($res['name']).'<br/>';
+                $ret .= '<b>'.$this->l('Trader address').':</b>&nbsp;'.Tools::safeOutput($res['address']).'<br/>';
+                $ret .= '<b>'.$this->l('VIES consultation ID').':</b>&nbsp;'.Tools::safeOutput($res['requestIdentifier'] !== '' ? $res['requestIdentifier'] : $this->l('none (SOAP fallback)'));
+                $ret .= '</p>';
+                return $ret;
+            } else {
+                VatNumberCheck::recordResult($vatnumber, $prefix, VatNumberCheck::STATUS_INVALID, VatNumberCheck::SOURCE_VIES, $res['requestIdentifier']);
+                return '<p class="alert alert-warning">'.sprintf($this->l('%s is NOT a valid VAT number'), $vatnumber).'</p>';
+            }
+        } catch (VatNumberViesUnavailableException $e) {
+            return '<p class="alert alert-warning">'.sprintf($this->l('VIES could not be reached (%s). Try again later.'), Tools::safeOutput($e->getMessage())).'</p>';
+        } catch (Exception $e) {
+            PrestaShopLogger::addLog('vatnumber: manual check of '.$vatnumber.' failed: '.$e->getMessage(), 3);
+            return '<p class="alert alert-danger">'.sprintf($this->l('VAT number check failed: %s'), Tools::safeOutput($e->getMessage())).'</p>';
+        }
     }
 
 }

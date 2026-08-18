@@ -23,23 +23,53 @@ if (!defined('_TB_VERSION_')) {
 
 /**
  * v2.7.0: local check cache table, REST client instead of SOAP, cron
- * endpoint, strict exemption mode.
+ * endpoint, strict exemption mode, back office validation hooks.
+ *
+ * Existing VAT numbers on customer addresses are seeded as 'unverified' so
+ * the cron verifies them in the background. Without this, enabling strict
+ * mode would silently withdraw the exemption from every existing customer.
  *
  * @param VatNumber $module
  *
- * @return true
+ * @return bool
  * @throws PrestaShopException
  */
 function upgrade_module_2_7_0($module)
 {
-    $module->executeSqlScript('install');
+    $result = $module->executeSqlScript('install')
+        && $module->registerHook('actionObjectAddressAddBefore')
+        && $module->registerHook('actionObjectAddressUpdateBefore');
 
     if (Configuration::get('VATNUMBER_REQUIRE_VALIDATION') === false) {
-        Configuration::updateValue('VATNUMBER_REQUIRE_VALIDATION', 0);
+        $result = Configuration::updateValue('VATNUMBER_REQUIRE_VALIDATION', 0) && $result;
     }
     if (!Configuration::get('VATNUMBER_CRON_TOKEN')) {
-        Configuration::updateValue('VATNUMBER_CRON_TOKEN', Tools::passwdGen(16));
+        $result = Configuration::updateValue('VATNUMBER_CRON_TOKEN', VatNumber::generateCronToken()) && $result;
     }
 
-    return true;
+    $rows = Db::getInstance()->executeS(
+        (new DbQuery())
+            ->select('DISTINCT vat_number')
+            ->from('address')
+            ->where('deleted = 0')
+            ->where('vat_number != \'\'')
+            ->where('vat_number != \''.pSQL(VatNumber::VAT_EXEMPTION_FLAG).'\'')
+    );
+    if (is_array($rows)) {
+        foreach ($rows as $row) {
+            $normalized = VatNumberCheck::normalize($row['vat_number']);
+            if (strlen($normalized) < 4) {
+                continue;
+            }
+            try {
+                if (!VatNumberCheck::findByNumber($normalized)) {
+                    VatNumberCheck::recordResult($normalized, substr($normalized, 0, 2), VatNumberCheck::STATUS_UNVERIFIED, VatNumberCheck::SOURCE_FORMAT);
+                }
+            } catch (Exception $e) {
+                PrestaShopLogger::addLog('vatnumber upgrade: failed to seed '.$normalized.': '.$e->getMessage(), 3);
+            }
+        }
+    }
+
+    return $result;
 }

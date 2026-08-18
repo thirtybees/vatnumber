@@ -29,7 +29,11 @@ if (!defined('_TB_VERSION_')) {
  * tell "VIES says the number is invalid" apart from "VIES could not be
  * asked". The first is a hard rejection, the second triggers the provisional
  * acceptance fallback.
+ *
+ * Extends plain Exception, not PrestaShopException: this signal is routine,
+ * expected control flow, not a fatal error, and it must never end up on
+ * core's fatal error page.
  */
-class VatNumberViesUnavailableException extends PrestaShopException
+class VatNumberViesUnavailableException extends Exception
 {
 }

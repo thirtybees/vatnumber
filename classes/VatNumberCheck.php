@@ -42,6 +42,19 @@ class VatNumberCheck extends ObjectModel
     /** Days after which a 'valid' number is re-verified by the cron. */
     const RECHECK_DAYS = 180;
 
+    /**
+     * Seconds a VIES 'invalid' answer is served from cache. Short on
+     * purpose: a freshly registered number should not stay locked out, but
+     * repeated saves of the same wrong number must not hammer VIES either.
+     */
+    const INVALID_RETRY_SECONDS = 3600;
+
+    /**
+     * Days after which 'unverified' and 'invalid' rows that no address
+     * references anymore are purged.
+     */
+    const PURGE_DAYS = 90;
+
     /** @var string Full normalized VAT number including country prefix. */
     public $vat_number;
 
@@ -63,11 +76,17 @@ class VatNumberCheck extends ObjectModel
     /** @var string Trader address as registered with the tax authorities. */
     public $trader_address;
 
+    /** @var int Last address this number was seen on, 0 when unknown. */
+    public $id_address;
+
     /** @var string */
     public $date_add;
 
     /** @var string Timestamp of the latest check. */
     public $date_upd;
+
+    /** @var array Per-request memo for getStatus(), avoids repeated queries. */
+    protected static $statusCache = [];
 
     /**
      * @var array
@@ -83,6 +102,7 @@ class VatNumberCheck extends ObjectModel
             'vies_request_id' => ['type' => self::TYPE_STRING, 'validate' => 'isGenericName', 'size' => 64],
             'trader_name'     => ['type' => self::TYPE_STRING, 'validate' => 'isCleanHtml', 'size' => 255],
             'trader_address'  => ['type' => self::TYPE_STRING, 'validate' => 'isCleanHtml', 'size' => 255],
+            'id_address'      => ['type' => self::TYPE_INT, 'validate' => 'isUnsignedId'],
             'date_add'        => ['type' => self::TYPE_DATE, 'validate' => 'isDate'],
             'date_upd'        => ['type' => self::TYPE_DATE, 'validate' => 'isDate'],
         ],
@@ -90,7 +110,10 @@ class VatNumberCheck extends ObjectModel
 
     /**
      * Normalize a VAT number for storage and comparison: uppercase, strip
-     * everything that is not a letter or digit (spaces, dots, dashes).
+     * everything that is not a letter or digit (spaces, dots, dashes), and
+     * translate to the canonical VIES form: the common 'GR' spelling for
+     * Greece becomes 'EL', and 9 digit legacy Belgian numbers get their
+     * leading zero restored.
      *
      * @param string $vatNumber
      *
@@ -98,11 +121,21 @@ class VatNumberCheck extends ObjectModel
      */
     public static function normalize($vatNumber)
     {
-        return strtoupper(preg_replace('/[^A-Za-z0-9]/', '', (string) $vatNumber));
+        $normalized = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', (string) $vatNumber));
+        if (substr($normalized, 0, 2) === 'GR') {
+            $normalized = 'EL'.substr($normalized, 2);
+        }
+        if (substr($normalized, 0, 2) === 'BE' && preg_match('/^BE[0-9]{9}$/', $normalized)) {
+            $normalized = 'BE0'.substr($normalized, 2);
+        }
+
+        return $normalized;
     }
 
     /**
-     * Find the check record for a VAT number.
+     * Find the check record for a VAT number. Reads the master database:
+     * this is used in read-then-write flows, where a stale replica answer
+     * would cause duplicate key failures.
      *
      * @param string $normalizedNumber Normalized VAT number with prefix.
      *
@@ -112,7 +145,7 @@ class VatNumberCheck extends ObjectModel
      */
     public static function findByNumber($normalizedNumber)
     {
-        $id = (int) Db::getInstance(_PS_USE_SQL_SLAVE_)->getValue(
+        $id = (int) Db::getInstance()->getValue(
             (new DbQuery())
                 ->select('id_vatnumber_check')
                 ->from('vatnumber_check')
@@ -131,6 +164,33 @@ class VatNumberCheck extends ObjectModel
     }
 
     /**
+     * Lightweight status lookup with a per-request memo. Used by the tax
+     * manager, which can be called several times per page; a full
+     * ObjectModel load per call would be wasteful.
+     *
+     * @param string $normalizedNumber Normalized VAT number with prefix.
+     *
+     * @return string|null One of the STATUS_* constants, or null when the
+     *                     number has no record.
+     *
+     * @throws PrestaShopException
+     */
+    public static function getStatus($normalizedNumber)
+    {
+        if (!array_key_exists($normalizedNumber, static::$statusCache)) {
+            $status = Db::getInstance()->getValue(
+                (new DbQuery())
+                    ->select('status')
+                    ->from('vatnumber_check')
+                    ->where('vat_number = \''.pSQL($normalizedNumber).'\'')
+            );
+            static::$statusCache[$normalizedNumber] = ($status === false) ? null : (string) $status;
+        }
+
+        return static::$statusCache[$normalizedNumber];
+    }
+
+    /**
      * Create or update the record for a VAT number with a fresh result.
      *
      * @param string $normalizedNumber Normalized VAT number with prefix.
@@ -140,17 +200,19 @@ class VatNumberCheck extends ObjectModel
      * @param string $requestId VIES consultation ID, if any.
      * @param string $traderName
      * @param string $traderAddress
+     * @param int $idAddress Address the number was seen on, if known.
      *
      * @return VatNumberCheck
      *
      * @throws PrestaShopException
      */
-    public static function recordResult($normalizedNumber, $countryCode, $status, $source, $requestId = '', $traderName = '', $traderAddress = '')
+    public static function recordResult($normalizedNumber, $countryCode, $status, $source, $requestId = '', $traderName = '', $traderAddress = '', $idAddress = 0)
     {
         $check = static::findByNumber($normalizedNumber);
         if (!$check) {
             $check = new VatNumberCheck();
             $check->vat_number = $normalizedNumber;
+            $check->id_address = 0;
         }
         $check->country_code = strtoupper((string) $countryCode);
         $check->status = $status;
@@ -158,10 +220,13 @@ class VatNumberCheck extends ObjectModel
         $check->vies_request_id = (string) $requestId;
         $check->trader_name = (string) $traderName;
         $check->trader_address = (string) $traderAddress;
-        $check->date_upd = date('Y-m-d H:i:s');
+        if ((int) $idAddress) {
+            $check->id_address = (int) $idAddress;
+        }
         if (!$check->save()) {
             throw new PrestaShopException('Failed to save VAT number check result for '.$normalizedNumber);
         }
+        static::$statusCache[$normalizedNumber] = $status;
 
         return $check;
     }
@@ -180,6 +245,20 @@ class VatNumberCheck extends ObjectModel
     }
 
     /**
+     * True when this record is a VIES confirmed 'invalid' younger than
+     * INVALID_RETRY_SECONDS. Such numbers are rejected from cache, so
+     * repeated saves of the same wrong number do not hammer VIES.
+     *
+     * @return bool
+     */
+    public function isFreshInvalid()
+    {
+        return $this->status === static::STATUS_INVALID
+            && $this->source === static::SOURCE_VIES
+            && strtotime($this->date_upd) > (time() - static::INVALID_RETRY_SECONDS);
+    }
+
+    /**
      * Numbers that still await VIES confirmation (accepted while the service
      * was down).
      *
@@ -189,7 +268,7 @@ class VatNumberCheck extends ObjectModel
      *
      * @throws PrestaShopException
      */
-    public static function getPending($limit = 50)
+    public static function getPending($limit)
     {
         $result = Db::getInstance(_PS_USE_SQL_SLAVE_)->executeS(
             (new DbQuery())
@@ -197,7 +276,7 @@ class VatNumberCheck extends ObjectModel
                 ->from('vatnumber_check')
                 ->where('status = \''.pSQL(static::STATUS_UNVERIFIED).'\'')
                 ->orderBy('date_upd ASC')
-                ->limit((int) $limit)
+                ->limit(max(1, (int) $limit))
         );
 
         return is_array($result) ? $result : [];
@@ -230,7 +309,7 @@ class VatNumberCheck extends ObjectModel
      *
      * @throws PrestaShopException
      */
-    public static function getStale($limit = 50)
+    public static function getStale($limit)
     {
         $result = Db::getInstance(_PS_USE_SQL_SLAVE_)->executeS(
             (new DbQuery())
@@ -239,9 +318,40 @@ class VatNumberCheck extends ObjectModel
                 ->where('status = \''.pSQL(static::STATUS_VALID).'\'')
                 ->where('date_upd < \''.pSQL(date('Y-m-d H:i:s', strtotime('-'.static::RECHECK_DAYS.' days'))).'\'')
                 ->orderBy('date_upd ASC')
-                ->limit((int) $limit)
+                ->limit(max(1, (int) $limit))
         );
 
         return is_array($result) ? $result : [];
+    }
+
+    /**
+     * Delete old 'unverified' and 'invalid' rows that no customer address
+     * references anymore, e.g. leftovers of corrected typos or of random
+     * numbers submitted by bots. Keeps the table bounded and keeps the cron
+     * from re-checking numbers nobody uses.
+     *
+     * 'valid' rows are never purged: they carry the consultation ID that
+     * proves a past verification.
+     *
+     * @return int Number of deleted rows.
+     *
+     * @throws PrestaShopException
+     */
+    public static function purgeOrphaned()
+    {
+        $cutoff = date('Y-m-d H:i:s', strtotime('-'.static::PURGE_DAYS.' days'));
+        $sql = 'DELETE c FROM `'._DB_PREFIX_.'vatnumber_check` c'
+            .' WHERE c.status IN (\''.pSQL(static::STATUS_UNVERIFIED).'\', \''.pSQL(static::STATUS_INVALID).'\')'
+            .' AND c.date_upd < \''.pSQL($cutoff).'\''
+            .' AND NOT EXISTS ('
+            .'SELECT 1 FROM `'._DB_PREFIX_.'address` a'
+            .' WHERE a.deleted = 0'
+            .' AND UPPER(REPLACE(REPLACE(REPLACE(a.vat_number, \' \', \'\'), \'.\', \'\'), \'-\', \'\')) = c.vat_number'
+            .')';
+        if (!Db::getInstance()->execute($sql)) {
+            throw new PrestaShopException('Failed to purge orphaned VAT number checks: '.Db::getInstance()->getMsgError());
+        }
+
+        return (int) Db::getInstance()->Affected_Rows();
     }
 }

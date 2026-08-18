@@ -1,6 +1,6 @@
 <?php
 /**
- * Copyright (C) 2017-2024 thirty bees
+ * Copyright (C) 2017-2026 thirty bees
  * Copyright (C) 2007-2016 PrestaShop SA
  *
  * thirty bees is an extension to the PrestaShop software by PrestaShop SA.
@@ -17,7 +17,7 @@
  *
  * @author    thirty bees <modules@thirtybees.com>
  * @author    PrestaShop SA <contact@prestashop.com>
- * @copyright 2017-2024 thirty bees
+ * @copyright 2017-2026 thirty bees
  * @copyright 2007-2016 PrestaShop SA
  * @license   Academic Free License (AFL 3.0)
  * PrestaShop is an internationally registered trademark of PrestaShop SA.
@@ -28,31 +28,50 @@ require_once __DIR__.'/vatnumber.php';
 class VATNumberTaxManager implements TaxManagerInterface
 {
     /**
+     * Decide whether this address gets the 0% VAT treatment.
+     *
      * @param Address $address
      * @return bool
      * @throws PrestaShopException
      */
     public static function isAvailableForThisAddress(Address $address)
     {
-        $available = (!empty($address->vat_number)
-            && ($address->id_country != Configuration::get('VATNUMBER_COUNTRY')
-                || $address->vat_number === VatNumber::VAT_EXEMPTION_FLAG)
-            && Configuration::get('VATNUMBER_MANAGEMENT')
-        );
-
-        // Strict mode: apply the exemption only after VIES confirmed the
-        // number. Numbers accepted provisionally during a VIES outage keep
-        // paying VAT until the background check confirms them. Manual
-        // exemptions (the checkbox) are not VIES verifiable and stay exempt.
-        if ($available
-            && $address->vat_number !== VatNumber::VAT_EXEMPTION_FLAG
-            && Configuration::get('VATNUMBER_CHECKING')
-            && Configuration::get('VATNUMBER_REQUIRE_VALIDATION')
-        ) {
-            $available = VatNumber::isVerifiedValid($address->vat_number);
+        if (empty($address->vat_number) || !Configuration::get('VATNUMBER_MANAGEMENT')) {
+            return false;
         }
 
-        return $available;
+        // Manual (checkbox based) exemption: only honored while the feature
+        // is enabled. Without this gate, sentinel values stored earlier, or
+        // typed in by a customer, would keep granting 0% VAT forever.
+        if ($address->vat_number === VatNumber::VAT_EXEMPTION_FLAG) {
+            return (bool) Configuration::get('VATNUMBER_MANUAL');
+        }
+
+        // Domestic customers always pay VAT.
+        if ((int) $address->id_country === (int) Configuration::get('VATNUMBER_COUNTRY')) {
+            return false;
+        }
+
+        // Consult the local check results when automatic checking is active.
+        // (In manual mode no checks run, so there is nothing to consult.)
+        if (Configuration::get('VATNUMBER_CHECKING') && !Configuration::get('VATNUMBER_MANUAL')) {
+            $status = VatNumberCheck::getStatus(VatNumberCheck::normalize($address->vat_number));
+
+            // A number VIES actively rejected never gets the exemption,
+            // in either mode.
+            if ($status === VatNumberCheck::STATUS_INVALID) {
+                return false;
+            }
+
+            // Strict mode: only VIES confirmed numbers are exempt. Numbers
+            // still awaiting verification keep paying VAT until the cron
+            // confirms them.
+            if (Configuration::get('VATNUMBER_REQUIRE_VALIDATION')) {
+                return $status === VatNumberCheck::STATUS_VALID;
+            }
+        }
+
+        return true;
     }
 
     /**

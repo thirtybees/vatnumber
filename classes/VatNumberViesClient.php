@@ -26,10 +26,15 @@ if (!defined('_TB_VERSION_')) {
  *
  * Primary transport is the REST API: one HTTPS request per check, strict
  * timeouts, and explicit error codes that let us distinguish an invalid
- * number from a service outage. When REST cannot answer and the PHP soap
- * extension is available, the legacy SOAP interface is tried once as a
- * silent fallback; both talk to the same backend database. Only when
- * neither transport answers is the check reported as an outage.
+ * number from a service outage. When REST cannot answer (or cURL is not
+ * available) and the PHP soap extension is loaded, the legacy SOAP
+ * interface is tried as a fallback; both talk to the same backend database.
+ * Only when neither transport answers is the check reported as an outage.
+ *
+ * Error philosophy: only codes that positively mean "this number is wrong"
+ * cause a rejection. Every other non-VALID code (rate limits, member state
+ * database down, unknown future codes) counts as "could not be asked", so a
+ * struggling VIES can never cause a legitimate customer to be refused.
  */
 class VatNumberViesClient
 {
@@ -44,18 +49,14 @@ class VatNumberViesClient
     const TIMEOUT = 10;
 
     /**
-     * VIES error codes that mean "the service could not answer right now".
-     * These trigger the provisional acceptance fallback.
+     * VIES error codes that positively mean the submitted number itself is
+     * unacceptable. Everything else non-VALID is treated as an outage.
      *
      * @var string[]
      */
-    protected static $outageCodes = [
-        'SERVICE_UNAVAILABLE',
-        'MS_UNAVAILABLE',
-        'TIMEOUT',
-        'GLOBAL_MAX_CONCURRENT_REQ',
-        'MS_MAX_CONCURRENT_REQ',
-        'IP_BLOCKED',
+    protected static $hardRejectCodes = [
+        'INVALID',
+        'INVALID_INPUT',
     ];
 
     /**
@@ -71,14 +72,26 @@ class VatNumberViesClient
      *               'address' (string) trader address as registered.
      *
      * @throws VatNumberViesUnavailableException when VIES cannot answer.
-     * @throws PrestaShopException on configuration errors (e.g. missing cURL).
+     * @throws PrestaShopException when no usable transport exists at all.
      */
     public static function checkVat($countryCode, $number)
     {
+        $curlAvailable = function_exists('curl_init');
+        $soapAvailable = extension_loaded('soap');
+
+        if (!$curlAvailable && !$soapAvailable) {
+            // Server misconfiguration, not an outage: surface it loudly
+            // instead of silently disabling all checking.
+            throw new PrestaShopException('Neither the curl nor the soap PHP extension is available, VAT numbers cannot be verified');
+        }
+        if (!$curlAvailable) {
+            return static::checkVatSoap($countryCode, $number);
+        }
+
         try {
             return static::checkVatRest($countryCode, $number);
         } catch (VatNumberViesUnavailableException $restException) {
-            if (!extension_loaded('soap')) {
+            if (!$soapAvailable) {
                 throw $restException;
             }
             try {
@@ -101,14 +114,9 @@ class VatNumberViesClient
      * @return array Same shape as checkVat().
      *
      * @throws VatNumberViesUnavailableException when the REST interface cannot answer.
-     * @throws PrestaShopException on configuration errors (e.g. missing cURL).
      */
     protected static function checkVatRest($countryCode, $number)
     {
-        if (!function_exists('curl_init')) {
-            throw new PrestaShopException('PHP curl extension not loaded');
-        }
-
         $payload = json_encode([
             'countryCode' => (string) $countryCode,
             'vatNumber'   => (string) $number,
@@ -147,19 +155,19 @@ class VatNumberViesClient
         // VIES signals problems both via HTTP status and via error fields in
         // the body. Check the body first, it is the more specific signal.
         $errorCode = static::extractErrorCode($data);
-        if ($errorCode !== '' && $errorCode !== 'VALID' && $errorCode !== 'INVALID') {
-            if (in_array($errorCode, static::$outageCodes)) {
-                throw new VatNumberViesUnavailableException('VIES service unavailable: '.$errorCode);
+        if ($errorCode !== '' && $errorCode !== 'VALID') {
+            if (in_array($errorCode, static::$hardRejectCodes)) {
+                return [
+                    'valid'             => false,
+                    'requestIdentifier' => '',
+                    'name'              => '',
+                    'address'           => '',
+                ];
             }
 
-            // Remaining codes (e.g. INVALID_INPUT) mean the number itself is
-            // not acceptable, which is a hard rejection, not an outage.
-            return [
-                'valid'             => false,
-                'requestIdentifier' => '',
-                'name'              => '',
-                'address'           => '',
-            ];
+            // Rate limits, member state outages, and any code we do not
+            // know: never reject a customer over these.
+            throw new VatNumberViesUnavailableException('VIES service unavailable: '.$errorCode);
         }
 
         if ($httpCode !== 200) {
@@ -181,10 +189,9 @@ class VatNumberViesClient
     }
 
     /**
-     * Ask VIES via the legacy SOAP interface. Fallback transport, only used
-     * when REST failed and the PHP soap extension is loaded. Same backend
-     * database, so answers are identical; SOAP just does not return a
-     * consultation ID.
+     * Ask VIES via the legacy SOAP interface. Fallback transport, used when
+     * REST failed or cURL is unavailable. Same backend database, so answers
+     * are identical; SOAP just does not return a consultation ID.
      *
      * @param string $countryCode VIES country code, e.g. 'NL' or 'EL'.
      * @param string $number Number part after the country prefix.
@@ -200,6 +207,9 @@ class VatNumberViesClient
         // The WSDL download does not honor SoapClient timeouts, it uses this
         // ini setting. Narrow it for the call, restore afterwards.
         $previousTimeout = ini_get('default_socket_timeout');
+        if ($previousTimeout === false || $previousTimeout === '') {
+            $previousTimeout = 60;
+        }
         ini_set('default_socket_timeout', (string) static::TIMEOUT);
         try {
             $client = new SoapClient(static::SOAP_WSDL, [
@@ -215,7 +225,7 @@ class VatNumberViesClient
             ]);
         } catch (SoapFault $fault) {
             $code = strtoupper(trim($fault->getMessage()));
-            if ($code === 'INVALID_INPUT') {
+            if (in_array($code, static::$hardRejectCodes)) {
                 return [
                     'valid'             => false,
                     'requestIdentifier' => '',
@@ -259,7 +269,9 @@ class VatNumberViesClient
 
     /**
      * VIES sometimes answers '---' for withheld trader data and uses
-     * newlines in addresses. Normalize for single line database storage.
+     * newlines in addresses. Normalize for single line database storage,
+     * and strip angle brackets so remote data can never trip the HTML
+     * validation on the database model or reach a page as markup.
      *
      * @param mixed $value
      *
@@ -270,6 +282,7 @@ class VatNumberViesClient
         if (!is_string($value)) {
             return '';
         }
+        $value = str_replace(['<', '>'], '', $value);
         $value = trim(preg_replace('/\s+/', ' ', $value));
         if ($value === '---') {
             return '';
