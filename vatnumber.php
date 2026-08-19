@@ -76,7 +76,7 @@ class VatNumber extends TaxManagerModule
     {
         $this->name = 'vatnumber';
         $this->tab = 'billing_invoicing';
-        $this->version = '2.7.1';
+        $this->version = '2.7.2';
         $this->author = 'thirty bees';
         $this->need_instance = true;
 
@@ -953,7 +953,10 @@ class VatNumber extends TaxManagerModule
                         'type'      => 'text',
                         'label'     => $this->l('VAT number'),
                         'name'      => 'CHECK_VATNUMBER',
-                        'desc'      => $this->l('VAT number including country prefix.').$this->checkResultHtml,
+                        'desc'      => $this->l('Use this to verify a customer\'s VAT number by hand: for example after a log entry says VIES rejected a number, before you refund or re-invoice VAT, or when a customer claims their number is valid after all. The result is stored in the local cache, so a number confirmed here immediately counts as verified for that customer in the shop.')
+                            .'<br/>'
+                            .sprintf($this->l('Enter the full number including the two letter country prefix, for example %s. Spaces, dots and dashes are fine. Use EL or GR for Greece and XI for Northern Ireland.'), 'NL822090313B01')
+                            .$this->checkResultHtml,
                     ]
                 ],
                 'submit' => [
