@@ -1,6 +1,11 @@
 
 /translations/*
 !/translations/index.php
+!/translations/nl.php
+!/translations/de.php
+!/translations/fr.php
+!/translations/es.php
+!/translations/it.php
 
 /config*.xml
 

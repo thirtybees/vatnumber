@@ -76,7 +76,7 @@ class VatNumber extends TaxManagerModule
     {
         $this->name = 'vatnumber';
         $this->tab = 'billing_invoicing';
-        $this->version = '2.7.2';
+        $this->version = '2.7.3';
         $this->author = 'thirty bees';
         $this->need_instance = true;
 
@@ -113,11 +113,27 @@ class VatNumber extends TaxManagerModule
             $this->registerHook('actionObjectAddressValidateController') &&
             $this->registerHook('actionObjectAddressAddBefore') &&
             $this->registerHook('actionObjectAddressUpdateBefore') &&
+            $this->registerHook('displayAdminOrder') &&
             Configuration::updateValue('VATNUMBER_MANAGEMENT', 1) &&
             Configuration::updateValue('VATNUMBER_REQUIRE_VALIDATION', 0) &&
             Configuration::updateValue('VATNUMBER_VERIFY_SINCE', '') &&
             Configuration::updateValue('VATNUMBER_CRON_TOKEN', static::generateCronToken())
         );
+    }
+
+    /**
+     * Translate a string from a static context. Tools::displayError() only
+     * consults the core error catalogue, so module strings passed through it
+     * can never be translated; this helper uses the module catalogue in
+     * translations/, like $this->l() does.
+     *
+     * @param string $string
+     *
+     * @return string
+     */
+    protected static function translate($string)
+    {
+        return Translate::getModuleTranslation('vatnumber', $string, 'vatnumber');
     }
 
     /**
@@ -307,6 +323,105 @@ class VatNumber extends TaxManagerModule
     }
 
     /**
+     * Panel on the back office order page: the VAT number this order was
+     * placed with, its current verification status, and the stored proof.
+     * Answers "was this order rightfully VAT exempt?" without leaving the
+     * order.
+     *
+     * @param array $params Hook parameters, contains 'id_order'.
+     *
+     * @return string
+     */
+    public function hookDisplayAdminOrder($params)
+    {
+        try {
+            $order = new Order((int) (isset($params['id_order']) ? $params['id_order'] : 0));
+            if (!Validate::isLoadedObject($order)) {
+                return '';
+            }
+            $address = new Address((int) $order->id_address_invoice);
+            if (!Validate::isLoadedObject($address)) {
+                return '';
+            }
+            $vatNumber = trim((string) $address->vat_number);
+            if ($vatNumber === '') {
+                return '';
+            }
+
+            return $this->renderOrderVatPanel($order, $vatNumber);
+        } catch (Exception $e) {
+            PrestaShopLogger::addLog('vatnumber: order panel failed for order '.(int) (isset($params['id_order']) ? $params['id_order'] : 0).': '.$e->getMessage(), 3);
+
+            return '<div class="panel"><h3><i class="icon icon-euro"></i> '.$this->l('VAT exemption').'</h3>'
+                .'<p class="alert alert-danger">'.sprintf($this->l('Could not display the VAT status: %s'), Tools::safeOutput($e->getMessage())).'</p></div>';
+        }
+    }
+
+    /**
+     * Build the order page VAT panel.
+     *
+     * @param Order $order
+     * @param string $vatNumber Trimmed VAT number of the invoice address.
+     *
+     * @return string
+     * @throws PrestaShopException
+     */
+    protected function renderOrderVatPanel($order, $vatNumber)
+    {
+        $vatCharged = ((float) $order->total_paid_tax_incl - (float) $order->total_paid_tax_excl) > 0.005;
+
+        $html = '<div class="panel"><h3><i class="icon icon-euro"></i> '.$this->l('VAT exemption').'</h3>';
+        $html .= '<p>'.($vatCharged
+            ? $this->l('VAT was charged on this order.')
+            : $this->l('No VAT was charged on this order (exemption applied).')).'</p>';
+
+        if ($vatNumber === static::VAT_EXEMPTION_FLAG) {
+            $html .= '<p>'.$this->l('This order uses the manual VAT exemption checkbox; there is no VAT number to verify.').'</p>';
+            $html .= '</div>';
+
+            return $html;
+        }
+
+        $normalized = VatNumberCheck::normalize($vatNumber);
+        $check = VatNumberCheck::findByNumber($normalized);
+
+        if (!$check) {
+            $badge = '<span class="label label-default">'.$this->l('Never checked').'</span>';
+        } elseif ($check->status === VatNumberCheck::STATUS_VALID) {
+            $badge = '<span class="label label-success">'.$this->l('Valid, confirmed by VIES').'</span>';
+        } elseif ($check->status === VatNumberCheck::STATUS_INVALID) {
+            $badge = '<span class="label label-danger">'.$this->l('Invalid, rejected by VIES').'</span>';
+        } else {
+            $badge = '<span class="label label-warning">'.$this->l('Awaiting verification').'</span>';
+        }
+
+        $html .= '<p><b>'.$this->l('VAT number on this order:').'</b> '.Tools::safeOutput($normalized).' '.$badge.'</p>';
+
+        if ($check) {
+            $html .= '<p><b>'.$this->l('Last checked:').'</b> '.Tools::safeOutput($check->date_upd).'</p>';
+            if ($check->trader_name !== '') {
+                $html .= '<p><b>'.$this->l('Registered trader:').'</b> '.Tools::safeOutput($check->trader_name).'</p>';
+            }
+            if ($check->vies_request_id !== '') {
+                $html .= '<p><b>'.$this->l('VIES consultation ID (proof):').'</b> '.Tools::safeOutput($check->vies_request_id).'</p>';
+            }
+            if ($check->status === VatNumberCheck::STATUS_INVALID) {
+                $html .= '<p class="alert alert-danger">'.$this->l('VIES rejected this number. If this order was exempted, review it and re-invoice the VAT if needed.').'</p>';
+            } elseif ($check->status === VatNumberCheck::STATUS_UNVERIFIED) {
+                $html .= '<p class="alert alert-warning">'.$this->l('This number was accepted while VIES was unreachable. The scheduled task will verify it; you can also check it now with the validation tool.').'</p>';
+            }
+        } else {
+            $html .= '<p>'.$this->l('This number has never been checked against VIES.').'</p>';
+        }
+
+        $configLink = $this->context->link->getAdminLink('AdminModules', true).'&configure='.$this->name;
+        $html .= '<p><a href="'.Tools::safeOutput($configLink).'">'.$this->l('Open the module configuration page to check this number by hand.').'</a></p>';
+        $html .= '</div>';
+
+        return $html;
+    }
+
+    /**
      * Map of address country ISO code to VIES VAT number prefix.
      *
      * @return string[]
@@ -411,7 +526,7 @@ class VatNumber extends TaxManagerModule
          * enabled. Otherwise it would be a self service tax exemption.
          */
         if (trim((string)$address->vat_number) === static::VAT_EXEMPTION_FLAG && !$manualAllowed) {
-            return Tools::displayError('Invalid VAT number.');
+            return static::translate('Invalid VAT number.');
         }
 
         if (Configuration::get('VATNUMBER_MANAGEMENT') && !Configuration::get('VATNUMBER_MANUAL')) {
@@ -423,7 +538,7 @@ class VatNumber extends TaxManagerModule
                 // Check that company is set
                 $company = trim((string)$address->company);
                 if ($company === '') {
-                    return Tools::displayError('VAT number, but no company name given.');
+                    return static::translate('VAT number, but no company name given.');
                 }
 
                 // Check the prefix on the normalized number, so that spaces,
@@ -433,7 +548,7 @@ class VatNumber extends TaxManagerModule
                 $vatNumberPrefix = substr($normalized, 0, 2);
                 $vatNumberIsoCode = array_search($vatNumberPrefix, static::getPrefixIntracomVAT());
                 if ($vatNumberIsoCode === false) {
-                    return Tools::displayError('Invalid VAT number prefix.');
+                    return static::translate('Invalid VAT number prefix.');
                 }
 
                 // Country validation with VAT number. XI numbers belong to
@@ -443,13 +558,13 @@ class VatNumber extends TaxManagerModule
                 $countryMatches = ($isoAddress === $vatNumberIsoCode)
                     || ($vatNumberPrefix === 'XI' && $isoAddress === 'GB');
                 if (!$countryMatches) {
-                    return Tools::displayError('VAT number inconsistent with country.');
+                    return static::translate('VAT number inconsistent with country.');
                 }
 
                 // Local format validation. Runs offline and catches typos
                 // before VIES is ever contacted.
                 if (!VatNumberFormat::isValid($vatNumberPrefix, substr($normalized, 2))) {
-                    return Tools::displayError('VAT number format is invalid for this country.');
+                    return static::translate('VAT number format is invalid for this country.');
                 }
 
                 if (Configuration::get('VATNUMBER_CHECKING')) {
@@ -504,7 +619,7 @@ class VatNumber extends TaxManagerModule
                 return [];
             }
             if ($check && $check->isFreshInvalid()) {
-                return [Tools::displayError('VAT number not registered at your tax authorities.')];
+                return [static::translate('VAT number not registered at your tax authorities.')];
             }
 
             if ((int) Configuration::get('VATNUMBER_VIES_DOWN_UNTIL') > time()) {
@@ -542,13 +657,13 @@ class VatNumber extends TaxManagerModule
 
             VatNumberCheck::recordResult($normalized, $countryCode, VatNumberCheck::STATUS_INVALID, VatNumberCheck::SOURCE_VIES, $result['requestIdentifier'], '', '', $idAddress);
 
-            return [Tools::displayError('VAT number not registered at your tax authorities.')];
+            return [static::translate('VAT number not registered at your tax authorities.')];
         } catch (Exception $e) {
             // Log the full cause; show the customer only a generic message.
             // Raw exception text can contain database details.
             PrestaShopLogger::addLog('vatnumber: VAT number check failed for '.$normalized.': '.$e->getMessage(), 3);
 
-            return [Tools::displayError('Failed to validate the VAT number. Please try again later.')];
+            return [static::translate('Failed to validate the VAT number. Please try again later.')];
         }
     }
 
@@ -1085,10 +1200,10 @@ class VatNumber extends TaxManagerModule
         $vatnumber = VatNumberCheck::normalize(Tools::getValue('CHECK_VATNUMBER'));
         $prefix = substr($vatnumber, 0, 2);
         if (!$prefix || !in_array($prefix, static::getPrefixIntracomVAT())) {
-            return '<p class="alert alert-danger">'.Tools::displayError('Invalid VAT number prefix.').'</p>';
+            return '<p class="alert alert-danger">'.$this->l('Invalid VAT number prefix.').'</p>';
         }
         if (!VatNumberFormat::isValid($prefix, substr($vatnumber, 2))) {
-            return '<p class="alert alert-danger">'.Tools::displayError('VAT number format is invalid for this country.').'</p>';
+            return '<p class="alert alert-danger">'.$this->l('VAT number format is invalid for this country.').'</p>';
         }
         try {
             $res = VatNumberViesClient::checkVat($prefix, substr($vatnumber, 2));
