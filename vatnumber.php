@@ -263,6 +263,12 @@ class VatNumber extends TaxManagerModule
      * already covered by the ValidateController hook; running twice would
      * double the VIES traffic.
      *
+     * These Before hooks cannot block the save, so a failed check is
+     * surfaced as a controller error (shown to the employee after the save)
+     * and logged. The tax manager independently refuses the exemption for
+     * numbers that are invalid or, in strict mode, unconfirmed - so a bad
+     * number slipping into the database never grants 0% VAT.
+     *
      * @param array $params
      *
      * @return void
@@ -277,9 +283,18 @@ class VatNumber extends TaxManagerModule
         if (!isset($params['object']) || !($params['object'] instanceof Address)) {
             return;
         }
-        $error = static::validateNumber($params['object']);
+        $address = $params['object'];
+        if ($address->deleted) {
+            // Address::delete() soft-deletes via update(); a stale VAT
+            // number must never make an address undeletable.
+            return;
+        }
+        $error = static::validateNumber($address);
         if (is_string($error)) {
-            throw new PrestaShopException($error);
+            PrestaShopLogger::addLog('vatnumber: back office save of address '.(int) $address->id.' with a VAT number that fails validation: '.$error, 3);
+            if ($controller instanceof AdminController) {
+                $controller->errors[] = sprintf($this->l('VAT number check: %s'), $error);
+            }
         }
     }
 
@@ -362,6 +377,10 @@ class VatNumber extends TaxManagerModule
      */
     public static function validateNumber(AddressCore $address)
     {
+        // Store the trimmed form, so later strict comparisons against the
+        // exemption sentinel cannot be dodged with padding.
+        $address->vat_number = trim((string) $address->vat_number);
+
         $manualAllowed = Configuration::get('VATNUMBER_MANAGEMENT')
             && Configuration::get('VATNUMBER_MANUAL');
 
@@ -496,6 +515,15 @@ class VatNumber extends TaxManagerModule
                 PrestaShopLogger::addLog('vatnumber: VIES unavailable, VAT number '.$normalized.' accepted provisionally. Reason: '.$e->getMessage(), 3);
 
                 return [];
+            } catch (PrestaShopException $e) {
+                // Server misconfiguration (no curl, no soap). Never block
+                // customers over it, but alert the merchant at the highest
+                // severity: checking is effectively disabled until fixed.
+                Configuration::updateValue('VATNUMBER_VIES_DOWN_UNTIL', time() + static::VIES_BREAKER_SECONDS);
+                static::acceptProvisionally($check, $normalized, $countryCode, $idAddress);
+                PrestaShopLogger::addLog('vatnumber: VAT number checking is broken, '.$normalized.' accepted provisionally. Fix this server problem: '.$e->getMessage(), 4);
+
+                return [];
             }
 
             if ($result['valid']) {
@@ -561,10 +589,17 @@ class VatNumber extends TaxManagerModule
             'confirmed' => 0,
             'rejected'  => 0,
             'failed'    => 0,
-            'purged'    => VatNumberCheck::purgeOrphaned(),
+            'purged'    => 0,
             'pending'   => 0,
             'vies_down' => false,
         ];
+
+        // Housekeeping must never abort the verification work.
+        try {
+            $summary['purged'] = VatNumberCheck::purgeOrphaned();
+        } catch (Exception $e) {
+            PrestaShopLogger::addLog('vatnumber cron: purge failed: '.$e->getMessage(), 3);
+        }
 
         $rows = VatNumberCheck::getPending($limit);
         $remaining = $limit - count($rows);
@@ -574,11 +609,35 @@ class VatNumber extends TaxManagerModule
 
         $rejected = [];
         foreach ($rows as $row) {
+            // Numbers that cannot possibly validate (bad prefix or format,
+            // e.g. seeded legacy garbage) are settled locally, VIES would
+            // only answer INVALID_INPUT anyway.
+            $prefix = substr($row['vat_number'], 0, 2);
+            if ($row['status'] !== VatNumberCheck::STATUS_VALID
+                && !VatNumberFormat::isValid($prefix, substr($row['vat_number'], 2))) {
+                try {
+                    VatNumberCheck::recordResult($row['vat_number'], $row['country_code'], VatNumberCheck::STATUS_INVALID, VatNumberCheck::SOURCE_FORMAT);
+                    $summary['rejected']++;
+                    $rejected[] = $row['vat_number'];
+                } catch (Exception $e) {
+                    PrestaShopLogger::addLog('vatnumber cron: saving result for '.$row['vat_number'].' failed: '.$e->getMessage(), 3);
+                    $summary['failed']++;
+                }
+                continue;
+            }
+
             try {
                 $result = VatNumberViesClient::checkVat($row['country_code'], substr($row['vat_number'], 2));
             } catch (VatNumberViesUnavailableException $e) {
                 // Still down, or down again. Stop the run, the rest would
-                // fail the same way. Numbers stay 'unverified'.
+                // likely fail the same way. Rotate the failing row to the
+                // back of the queue: a single number whose member state is
+                // down for days must not block all other pending numbers.
+                // Only unverified rows are rotated; date_upd on a valid row
+                // is the audit timestamp of its last confirmation.
+                if ($row['status'] === VatNumberCheck::STATUS_UNVERIFIED) {
+                    VatNumberCheck::touchRow((int) $row['id_vatnumber_check']);
+                }
                 Configuration::updateValue('VATNUMBER_VIES_DOWN_UNTIL', time() + static::VIES_BREAKER_SECONDS);
                 PrestaShopLogger::addLog('vatnumber cron: VIES unavailable, stopping this run. Reason: '.$e->getMessage(), 2);
                 $summary['vies_down'] = true;
@@ -930,7 +989,7 @@ class VatNumber extends TaxManagerModule
         if (Configuration::get('VATNUMBER_MANAGEMENT')
             && Configuration::get('VATNUMBER_MANUAL')
             && is_object($address)
-            && $address->vat_number === static::VAT_EXEMPTION_FLAG
+            && trim((string) $address->vat_number) === static::VAT_EXEMPTION_FLAG
         ) {
             $address->vat_exemption = true;
             $address->vat_number = '';

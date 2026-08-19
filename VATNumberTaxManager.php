@@ -42,8 +42,9 @@ class VATNumberTaxManager implements TaxManagerInterface
 
         // Manual (checkbox based) exemption: only honored while the feature
         // is enabled. Without this gate, sentinel values stored earlier, or
-        // typed in by a customer, would keep granting 0% VAT forever.
-        if ($address->vat_number === VatNumber::VAT_EXEMPTION_FLAG) {
+        // typed in by a customer, would keep granting 0% VAT forever. The
+        // trim matches validateNumber(), which accepts padded input.
+        if (trim((string) $address->vat_number) === VatNumber::VAT_EXEMPTION_FLAG) {
             return (bool) Configuration::get('VATNUMBER_MANUAL');
         }
 
@@ -52,21 +53,20 @@ class VATNumberTaxManager implements TaxManagerInterface
             return false;
         }
 
-        // Consult the local check results when automatic checking is active.
-        // (In manual mode no checks run, so there is nothing to consult.)
-        if (Configuration::get('VATNUMBER_CHECKING') && !Configuration::get('VATNUMBER_MANUAL')) {
+        if (Configuration::get('VATNUMBER_CHECKING')) {
             $status = VatNumberCheck::getStatus(VatNumberCheck::normalize($address->vat_number));
 
             // A number VIES actively rejected never gets the exemption,
-            // in either mode.
+            // in either mode, manual or not.
             if ($status === VatNumberCheck::STATUS_INVALID) {
                 return false;
             }
 
             // Strict mode: only VIES confirmed numbers are exempt. Numbers
             // still awaiting verification keep paying VAT until the cron
-            // confirms them.
-            if (Configuration::get('VATNUMBER_REQUIRE_VALIDATION')) {
+            // confirms them. Not applicable in manual mode: there no checks
+            // run at all, so no number could ever become confirmed.
+            if (Configuration::get('VATNUMBER_REQUIRE_VALIDATION') && !Configuration::get('VATNUMBER_MANUAL')) {
                 return $status === VatNumberCheck::STATUS_VALID;
             }
         }

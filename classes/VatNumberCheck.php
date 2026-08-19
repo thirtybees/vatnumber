@@ -325,10 +325,37 @@ class VatNumberCheck extends ObjectModel
     }
 
     /**
+     * Move a row to the back of the verification queue by refreshing its
+     * date_upd. Used when VIES could not answer for this specific number,
+     * so it does not block the queue head forever.
+     *
+     * @param int $idVatNumberCheck
+     *
+     * @return void
+     * @throws PrestaShopException
+     */
+    public static function touchRow($idVatNumberCheck)
+    {
+        $ok = Db::getInstance()->update(
+            'vatnumber_check',
+            ['date_upd' => date('Y-m-d H:i:s')],
+            'id_vatnumber_check = '.(int) $idVatNumberCheck
+        );
+        if (!$ok) {
+            throw new PrestaShopException('Failed to touch VatNumberCheck '.(int) $idVatNumberCheck);
+        }
+    }
+
+    /**
      * Delete old 'unverified' and 'invalid' rows that no customer address
      * references anymore, e.g. leftovers of corrected typos or of random
      * numbers submitted by bots. Keeps the table bounded and keeps the cron
      * from re-checking numbers nobody uses.
+     *
+     * The set of live numbers is collected in PHP and normalized with
+     * normalize(), the single source of truth. Reimplementing the
+     * normalization in SQL would silently diverge (GR to EL mapping,
+     * Belgian zero padding) and purge rows that are still in use.
      *
      * 'valid' rows are never purged: they carry the consultation ID that
      * proves a past verification.
@@ -339,15 +366,28 @@ class VatNumberCheck extends ObjectModel
      */
     public static function purgeOrphaned()
     {
+        $rows = Db::getInstance()->executeS(
+            (new DbQuery())
+                ->select('DISTINCT vat_number')
+                ->from('address')
+                ->where('deleted = 0')
+                ->where('vat_number != \'\'')
+        );
+        $live = [];
+        foreach (is_array($rows) ? $rows : [] as $row) {
+            $normalized = static::normalize($row['vat_number']);
+            if ($normalized !== '') {
+                $live[] = '\''.pSQL($normalized).'\'';
+            }
+        }
+
         $cutoff = date('Y-m-d H:i:s', strtotime('-'.static::PURGE_DAYS.' days'));
-        $sql = 'DELETE c FROM `'._DB_PREFIX_.'vatnumber_check` c'
-            .' WHERE c.status IN (\''.pSQL(static::STATUS_UNVERIFIED).'\', \''.pSQL(static::STATUS_INVALID).'\')'
-            .' AND c.date_upd < \''.pSQL($cutoff).'\''
-            .' AND NOT EXISTS ('
-            .'SELECT 1 FROM `'._DB_PREFIX_.'address` a'
-            .' WHERE a.deleted = 0'
-            .' AND UPPER(REPLACE(REPLACE(REPLACE(a.vat_number, \' \', \'\'), \'.\', \'\'), \'-\', \'\')) = c.vat_number'
-            .')';
+        $sql = 'DELETE FROM `'._DB_PREFIX_.'vatnumber_check`'
+            .' WHERE status IN (\''.pSQL(static::STATUS_UNVERIFIED).'\', \''.pSQL(static::STATUS_INVALID).'\')'
+            .' AND date_upd < \''.pSQL($cutoff).'\'';
+        if ($live) {
+            $sql .= ' AND vat_number NOT IN ('.implode(', ', $live).')';
+        }
         if (!Db::getInstance()->execute($sql)) {
             throw new PrestaShopException('Failed to purge orphaned VAT number checks: '.Db::getInstance()->getMsgError());
         }

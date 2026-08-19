@@ -61,26 +61,31 @@ class VatnumberCronModuleFrontController extends ModuleFrontController
             die(json_encode(['skipped' => 'Another run is in progress']));
         }
 
+        // No die() before the lock release below: PHP does not run finally
+        // blocks on exit, so the response is built first and sent last.
+        $httpCode = 200;
+        $body = null;
         try {
             $lastRun = (int) Configuration::get('VATNUMBER_CRON_LAST_RUN');
             if ((time() - $lastRun) < static::MIN_RUN_INTERVAL) {
-                http_response_code(429);
-                die(json_encode(['skipped' => 'Ran less than '.static::MIN_RUN_INTERVAL.' seconds ago']));
+                $httpCode = 429;
+                $body = ['skipped' => 'Ran less than '.static::MIN_RUN_INTERVAL.' seconds ago'];
+            } else {
+                try {
+                    $body = VatNumber::runBackgroundChecks();
+                } catch (Exception $e) {
+                    // Log the full cause; the HTTP response stays generic,
+                    // the caller is a scheduler, not a debugger.
+                    PrestaShopLogger::addLog('vatnumber cron: run failed: '.$e->getMessage(), 3);
+                    $httpCode = 500;
+                    $body = ['error' => 'Run failed, see the shop log for details'];
+                }
             }
-
-            try {
-                $summary = VatNumber::runBackgroundChecks();
-            } catch (Exception $e) {
-                // Log the full cause; the HTTP response stays generic, the
-                // caller is a scheduler, not a debugger.
-                PrestaShopLogger::addLog('vatnumber cron: run failed: '.$e->getMessage(), 3);
-                http_response_code(500);
-                die(json_encode(['error' => 'Run failed, see the shop log for details']));
-            }
-
-            die(json_encode($summary));
         } finally {
             Db::getInstance()->getValue('SELECT RELEASE_LOCK(\'vatnumber_cron\')');
         }
+
+        http_response_code($httpCode);
+        die(json_encode($body));
     }
 }
