@@ -58,6 +58,15 @@ module never blocks a customer because of that:
   customer's orders and re-invoice VAT if needed - and from that moment the
   number no longer receives the exemption, in any mode.
 
+The cron works in batches of 20 numbers per run (append `&limit=100` to
+the cron URL to drain a large queue faster; 100 is the maximum per run).
+After upgrading, all VAT numbers already stored on addresses are queued -
+on an older shop that can be thousands. Use the "Only verify numbers used
+since" setting to drop queued numbers of customers with no address change
+and no order since that date: the queue then only contains customers who
+still matter, and a dormant customer who returns simply gets checked live
+at that moment.
+
 Set up the cron by calling the URL shown on the module's configuration page
 from a scheduled task (for example hourly, via the cronjobs module or your
 server's crontab). The configuration page warns you when numbers are

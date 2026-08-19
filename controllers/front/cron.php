@@ -71,8 +71,12 @@ class VatnumberCronModuleFrontController extends ModuleFrontController
                 $httpCode = 429;
                 $body = ['skipped' => 'Ran less than '.static::MIN_RUN_INTERVAL.' seconds ago'];
             } else {
+                // Optional &limit= override, clamped by runBackgroundChecks
+                // to CRON_MAX_BATCH_SIZE. Lets a merchant drain a large
+                // queue faster than the default batch of 20.
+                $limit = (int) Tools::getValue('limit');
                 try {
-                    $body = VatNumber::runBackgroundChecks();
+                    $body = VatNumber::runBackgroundChecks($limit > 0 ? $limit : null);
                 } catch (Exception $e) {
                     // Log the full cause; the HTTP response stays generic,
                     // the caller is a scheduler, not a debugger.

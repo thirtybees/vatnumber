@@ -394,4 +394,74 @@ class VatNumberCheck extends ObjectModel
 
         return (int) Db::getInstance()->Affected_Rows();
     }
+
+    /**
+     * Normalized VAT numbers of addresses that have been active since a
+     * date: the address itself was created or changed since then, or its
+     * customer placed an order since then.
+     *
+     * @param string $date Date in Y-m-d format.
+     *
+     * @return string[] Normalized numbers, pSQL-quoted for use in IN ().
+     *
+     * @throws PrestaShopException
+     */
+    protected static function getActiveNumbersSince($date)
+    {
+        $rows = Db::getInstance()->executeS(
+            (new DbQuery())
+                ->select('DISTINCT a.vat_number')
+                ->from('address', 'a')
+                ->where('a.deleted = 0')
+                ->where('a.vat_number != \'\'')
+                ->where(
+                    'a.date_upd >= \''.pSQL($date).'\''
+                    .' OR a.id_customer IN ('
+                    .'SELECT o.id_customer FROM `'._DB_PREFIX_.'orders` o WHERE o.date_add >= \''.pSQL($date).'\''
+                    .')'
+                )
+        );
+        $numbers = [];
+        foreach (is_array($rows) ? $rows : [] as $row) {
+            $normalized = static::normalize($row['vat_number']);
+            if ($normalized !== '') {
+                $numbers[] = '\''.pSQL($normalized).'\'';
+            }
+        }
+
+        return $numbers;
+    }
+
+    /**
+     * Drop queued rows (status 'unverified', never answered by VIES) for
+     * numbers whose owners have not been active since the given start date.
+     * Keeps the verification queue focused on customers who still order,
+     * instead of working through years of dormant addresses.
+     *
+     * Safe by design: only rows that never got a VIES answer are dropped,
+     * and if a dormant customer returns and saves their address, the number
+     * is simply checked live again at that moment.
+     *
+     * @param string $date Date in Y-m-d format.
+     *
+     * @return int Number of dropped rows.
+     *
+     * @throws PrestaShopException
+     */
+    public static function removeInactiveUnverified($date)
+    {
+        $active = static::getActiveNumbersSince($date);
+        $sql = 'DELETE FROM `'._DB_PREFIX_.'vatnumber_check`'
+            .' WHERE status = \''.pSQL(static::STATUS_UNVERIFIED).'\''
+            .' AND source = \''.pSQL(static::SOURCE_FORMAT).'\'';
+        if ($active) {
+            $sql .= ' AND vat_number NOT IN ('.implode(', ', $active).')';
+        }
+        if (!Db::getInstance()->execute($sql)) {
+            throw new PrestaShopException('Failed to drop inactive unverified VAT numbers: '.Db::getInstance()->getMsgError());
+        }
+        static::$statusCache = [];
+
+        return (int) Db::getInstance()->Affected_Rows();
+    }
 }

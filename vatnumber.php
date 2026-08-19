@@ -48,6 +48,12 @@ class VatNumber extends TaxManagerModule
     const CRON_BATCH_SIZE = 20;
 
     /**
+     * Upper bound for the cron's optional &limit= override. Larger batches
+     * drain a big queue faster, but stay polite towards VIES.
+     */
+    const CRON_MAX_BATCH_SIZE = 100;
+
+    /**
      * Seconds the circuit breaker stays open after a VIES failure. While
      * open, no new VIES requests are made and numbers are accepted
      * provisionally right away, so a struggling VIES is not hammered.
@@ -109,6 +115,7 @@ class VatNumber extends TaxManagerModule
             $this->registerHook('actionObjectAddressUpdateBefore') &&
             Configuration::updateValue('VATNUMBER_MANAGEMENT', 1) &&
             Configuration::updateValue('VATNUMBER_REQUIRE_VALIDATION', 0) &&
+            Configuration::updateValue('VATNUMBER_VERIFY_SINCE', '') &&
             Configuration::updateValue('VATNUMBER_CRON_TOKEN', static::generateCronToken())
         );
     }
@@ -182,6 +189,7 @@ class VatNumber extends TaxManagerModule
                && Configuration::deleteByName('VATNUMBER_COUNTRY')
                && Configuration::deleteByName('VATNUMBER_MANAGEMENT')
                && Configuration::deleteByName('VATNUMBER_REQUIRE_VALIDATION')
+               && Configuration::deleteByName('VATNUMBER_VERIFY_SINCE')
                && Configuration::deleteByName('VATNUMBER_CRON_TOKEN')
                && Configuration::deleteByName('VATNUMBER_VIES_DOWN_UNTIL')
                && Configuration::deleteByName('VATNUMBER_CRON_LAST_RUN');
@@ -576,13 +584,14 @@ class VatNumber extends TaxManagerModule
      *                        to CRON_BATCH_SIZE.
      *
      * @return array Summary: numbers checked, confirmed, rejected, failed,
-     *               purged, still pending, and whether VIES was reachable.
+     *               purged, dropped_old (removed by the verification start
+     *               date), still pending, and whether VIES was reachable.
      *
      * @throws PrestaShopException
      */
     public static function runBackgroundChecks($limit = null)
     {
-        $limit = max(1, (int) ($limit === null ? static::CRON_BATCH_SIZE : $limit));
+        $limit = min(static::CRON_MAX_BATCH_SIZE, max(1, (int) ($limit === null ? static::CRON_BATCH_SIZE : $limit)));
 
         $summary = [
             'checked'   => 0,
@@ -599,6 +608,19 @@ class VatNumber extends TaxManagerModule
             $summary['purged'] = VatNumberCheck::purgeOrphaned();
         } catch (Exception $e) {
             PrestaShopLogger::addLog('vatnumber cron: purge failed: '.$e->getMessage(), 3);
+        }
+
+        // Optional start date: drop queued numbers of customers that have
+        // not been active since then, so the queue stays focused on
+        // customers who still order.
+        $summary['dropped_old'] = 0;
+        $verifySince = trim((string) Configuration::get('VATNUMBER_VERIFY_SINCE'));
+        if ($verifySince !== '' && Validate::isDate($verifySince)) {
+            try {
+                $summary['dropped_old'] = VatNumberCheck::removeInactiveUnverified($verifySince);
+            } catch (Exception $e) {
+                PrestaShopLogger::addLog('vatnumber cron: dropping inactive numbers failed: '.$e->getMessage(), 3);
+            }
         }
 
         $rows = VatNumberCheck::getPending($limit);
@@ -712,11 +734,17 @@ class VatNumber extends TaxManagerModule
      */
     protected function processSaveSettings()
     {
+        $verifySince = trim((string) Tools::getValue('VATNUMBER_VERIFY_SINCE'));
+        if ($verifySince !== '' && !Validate::isDate($verifySince)) {
+            return $this->displayError($this->l('The verification start date must be a valid date (YYYY-MM-DD), or empty to verify all numbers.'));
+        }
+
         $updates = [
             'VATNUMBER_COUNTRY'            => (int) Tools::getValue('VATNUMBER_COUNTRY'),
             'VATNUMBER_MANUAL'             => (bool) Tools::getValue('VATNUMBER_MANUAL'),
             'VATNUMBER_CHECKING'           => (bool) Tools::getValue('VATNUMBER_CHECKING'),
             'VATNUMBER_REQUIRE_VALIDATION' => (bool) Tools::getValue('VATNUMBER_REQUIRE_VALIDATION'),
+            'VATNUMBER_VERIFY_SINCE'       => $verifySince,
         ];
         $failed = [];
         foreach ($updates as $key => $value) {
@@ -759,8 +787,13 @@ class VatNumber extends TaxManagerModule
         } elseif ($lastRun) {
             $html .= '<p>'.sprintf($this->l('Last verification run: %s'), Tools::safeOutput(date('Y-m-d H:i:s', $lastRun))).'</p>';
         }
+        $verifySince = trim((string) Configuration::get('VATNUMBER_VERIFY_SINCE'));
+        if ($verifySince !== '') {
+            $html .= '<p>'.sprintf($this->l('Verification start date active: queued numbers of customers inactive since %s are dropped automatically.'), Tools::safeOutput($verifySince)).'</p>';
+        }
         $html .= '<p>'.$this->l('To verify pending numbers and re-check old ones automatically, call this URL from a scheduled task (for example every hour, via the cronjobs module or your server\'s crontab):').'</p>';
         $html .= '<p><code>'.Tools::safeOutput($cronUrl).'</code></p>';
+        $html .= '<p>'.sprintf($this->l('Each run checks %d numbers. To drain a large queue faster, append &limit=%d to the URL (the maximum per run).'), static::CRON_BATCH_SIZE, static::CRON_MAX_BATCH_SIZE).'</p>';
         $html .= '</div>';
 
         return $html;
@@ -853,6 +886,12 @@ class VatNumber extends TaxManagerModule
                         'desc'      => $this->l('Disabled (default): customers get the VAT exemption immediately, even while their number is still awaiting verification. Enabled: customers keep paying VAT until VIES has confirmed their number. Enabled is safer for you, disabled is friendlier for the customer. Only relevant when automatic checking is enabled. Numbers that VIES rejected never get the exemption, in either mode.'),
                         'values'    => $this->getSwitchValues(),
                     ],
+                    [
+                        'type'      => 'text',
+                        'label'     => $this->l('Only verify numbers used since'),
+                        'name'      => 'VATNUMBER_VERIFY_SINCE',
+                        'desc'      => $this->l('Date in YYYY-MM-DD format, or empty to verify everything. Queued numbers of customers with no address change and no order since this date are dropped from the verification queue. Useful after upgrading a shop with years of old addresses. Dropped numbers are simply checked live again if such a customer ever returns.'),
+                    ],
                 ],
                 'submit' => [
                     'title' => $this->l('Save'),
@@ -935,6 +974,7 @@ class VatNumber extends TaxManagerModule
             'VATNUMBER_MANUAL' => Tools::getValue('VATNUMBER_MANUAL', Configuration::get('VATNUMBER_MANUAL')),
             'VATNUMBER_CHECKING' => Tools::getValue('VATNUMBER_CHECKING', Configuration::get('VATNUMBER_CHECKING')),
             'VATNUMBER_REQUIRE_VALIDATION' => Tools::getValue('VATNUMBER_REQUIRE_VALIDATION', Configuration::get('VATNUMBER_REQUIRE_VALIDATION')),
+            'VATNUMBER_VERIFY_SINCE' => Tools::getValue('VATNUMBER_VERIFY_SINCE', (string) Configuration::get('VATNUMBER_VERIFY_SINCE')),
             'CHECK_VATNUMBER' => Tools::getValue('CHECK_VATNUMBER', ''),
         ];
     }
