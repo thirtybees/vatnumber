@@ -76,7 +76,7 @@ class VatNumber extends TaxManagerModule
     {
         $this->name = 'vatnumber';
         $this->tab = 'billing_invoicing';
-        $this->version = '2.7.0';
+        $this->version = '2.7.1';
         $this->author = 'thirty bees';
         $this->need_instance = true;
 
@@ -722,7 +722,41 @@ class VatNumber extends TaxManagerModule
             $this->checkResultHtml = $this->processVatNumberCheck();
         }
 
-        return $echo.$this->renderForm().$this->renderStatusPanel();
+        return $echo.$this->renderExplanationPanel().$this->renderForm().$this->renderStatusPanel();
+    }
+
+    /**
+     * Explanation panel at the top of the configuration page: what the
+     * module does and how it behaves, so the merchant does not need the
+     * external documentation for day to day use.
+     *
+     * @return string
+     */
+    protected function renderExplanationPanel()
+    {
+        $html = '<div class="panel"><h3><i class="icon icon-info-circle"></i> '.$this->l('How this module works').'</h3>';
+
+        $html .= '<p>'.$this->l('Business customers in another EU country pay no VAT when they provide a valid VAT number (reverse charge). The customer enters the number on their address, the module validates it (first locally, then against VIES, the official EU database), and prices, cart and invoices for that customer switch to 0% VAT.').'</p>';
+        $html .= '<p>'.$this->l('Customers from your own country always pay VAT. Spaces and dots in the number are fine, Greek numbers typed with the GR prefix are treated as EL, and Northern Ireland businesses (XI number, GB address) are supported.').'</p>';
+
+        $html .= '<h4>'.$this->l('When VIES is down').'</h4>';
+        $html .= '<ul>';
+        $html .= '<li>'.$this->l('The number is accepted provisionally (its format was already checked) and marked as awaiting verification. The customer is never blocked.').'</li>';
+        $html .= '<li>'.$this->l('For 5 minutes no new VIES requests are sent, so your server IP does not get rate limited.').'</li>';
+        $html .= '<li>'.$this->l('The scheduled task below re-checks the number later. If VIES then rejects it, you get a log entry and the exemption stops for future orders; orders already placed must be reviewed and re-invoiced with VAT yourself.').'</li>';
+        $html .= '<li>'.$this->l('Want these events by email? Set the minimum severity level to 3 in Advanced Parameters > Logs.').'</li>';
+        $html .= '</ul>';
+
+        $html .= '<h4>'.$this->l('Good to know').'</h4>';
+        $html .= '<ul>';
+        $html .= '<li>'.$this->l('When VIES provides a consultation ID with a check, it is stored as proof towards the tax authorities. VIES does not provide this ID with every request.').'</li>';
+        $html .= '<li>'.$this->l('Uninstalling the module deletes the check results table, including that proof. Make a database backup first.').'</li>';
+        $html .= '<li>'.$this->l('Confirmed numbers are served from the local cache for 30 days and re-verified every 180 days, because VAT registrations expire.').'</li>';
+        $html .= '<li>'.$this->l('You can check any number by hand with the validation tool at the bottom of this page.').'</li>';
+        $html .= '</ul>';
+        $html .= '</div>';
+
+        return $html;
     }
 
     /**
