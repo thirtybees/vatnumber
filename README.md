@@ -12,9 +12,15 @@ does not charge VAT ("reverse charge"). This module implements exactly that:
 - The module validates the number (see below).
 - Prices, cart, and invoices for that customer show 0% VAT.
 
-It also supports manual exemptions without a VAT number (for example Group 12
-of Schedule 8 of the Value Added Tax Act 1994 in the United Kingdom) via a
-simple checkbox, enabled with the "Allow manual verification" setting.
+The VAT number is the only route to an exemption. The checkbox based
+exemption without a VAT number of versions before 2.7.4 has been removed:
+it was a self declaration without any check, and while enabled it disabled
+all VAT number checks. Upgrading clears its flag from addresses and logs how
+many customers were affected.
+
+The back office has a how-to page under Localization > VAT numbers how-to
+with the settings explained, the outage behavior, and where to check a
+customer (order page, address, manual check, log).
 
 ## How a VAT number is validated
 
@@ -77,12 +83,11 @@ works while the shop is in maintenance mode.
 
 You choose, with the "Exempt only after successful check" setting:
 
-- **Disabled (default, customer friendly):** the exemption applies
-  immediately. If the number later turns out invalid, you are notified, the
-  exemption stops for future orders, and you can re-invoice the VAT for
-  orders already placed.
-- **Enabled (merchant safe):** the customer keeps paying VAT until VIES has
-  confirmed the number. Refund the VAT afterwards if you wish.
+- **Enabled (default, merchant safe):** the customer keeps paying VAT until
+  VIES has confirmed the number. Refund the VAT afterwards if you wish.
+- **Disabled (customer friendly):** the exemption applies immediately. If the
+  number later turns out invalid, you are notified, the exemption stops for
+  future orders, and you can re-invoice the VAT for orders already placed.
 
 When upgrading from an older module version, all VAT numbers already stored
 on customer addresses are queued for background verification, so enabling
@@ -97,9 +102,15 @@ customer edits since 2.7.0.
 | Setting | Meaning |
 |---|---|
 | Always add VAT for customers from | Your own country: domestic B2B sales always include VAT. |
-| Allow manual verification | Adds a VAT exemption checkbox not tied to a VAT number. |
-| Check VAT number automatically | Ask VIES to confirm numbers (recommended). |
-| Exempt only after successful check | Withhold the exemption until VIES confirmed the number. |
+| Check VAT number automatically | Ask VIES to confirm numbers (default on). |
+| Exempt only after successful check | Withhold the exemption until VIES confirmed the number (default on). |
+| Your own VAT number | Sent along with every VIES check; VIES then returns a consultation ID, the formal proof of the check. |
+| Only verify numbers used since | Drop queued numbers of customers inactive since that date; applied on save and on every cron run. |
+
+The cron also queues numbers that exist on customer addresses without a check
+record (stored while checking was off, imported, or missed), so the queue
+heals itself. Its JSON answer carries a plain words `message`, and all zeros
+simply means the queue is empty.
 
 ## License
 

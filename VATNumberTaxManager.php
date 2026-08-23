@@ -40,12 +40,11 @@ class VATNumberTaxManager implements TaxManagerInterface
             return false;
         }
 
-        // Manual (checkbox based) exemption: only honored while the feature
-        // is enabled. Without this gate, sentinel values stored earlier, or
-        // typed in by a customer, would keep granting 0% VAT forever. The
-        // trim matches validateNumber(), which accepts padded input.
+        // Legacy checkbox sentinel from versions before 2.7.4: never an
+        // exemption. The upgrade clears it from addresses, this is the
+        // safety net for anything it missed or a customer typing it.
         if (trim((string) $address->vat_number) === VatNumber::VAT_EXEMPTION_FLAG) {
-            return (bool) Configuration::get('VATNUMBER_MANUAL');
+            return false;
         }
 
         // Domestic customers always pay VAT.
@@ -64,9 +63,8 @@ class VATNumberTaxManager implements TaxManagerInterface
 
             // Strict mode: only VIES confirmed numbers are exempt. Numbers
             // still awaiting verification keep paying VAT until the cron
-            // confirms them. Not applicable in manual mode: there no checks
-            // run at all, so no number could ever become confirmed.
-            if (Configuration::get('VATNUMBER_REQUIRE_VALIDATION') && !Configuration::get('VATNUMBER_MANUAL')) {
+            // confirms them.
+            if (Configuration::get('VATNUMBER_REQUIRE_VALIDATION')) {
                 return $status === VatNumberCheck::STATUS_VALID;
             }
         }

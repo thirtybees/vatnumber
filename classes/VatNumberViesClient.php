@@ -64,6 +64,10 @@ class VatNumberViesClient
      *
      * @param string $countryCode VIES country code, e.g. 'NL' or 'EL'.
      * @param string $number Number part after the country prefix.
+     * @param array|null $requester The shop's own VAT number as
+     *                              ['countryCode' => .., 'number' => ..].
+     *                              When given, VIES returns a consultation
+     *                              ID (requestIdentifier) with the answer.
      *
      * @return array with keys:
      *               'valid' (bool),
@@ -74,7 +78,7 @@ class VatNumberViesClient
      * @throws VatNumberViesUnavailableException when VIES cannot answer.
      * @throws PrestaShopException when no usable transport exists at all.
      */
-    public static function checkVat($countryCode, $number)
+    public static function checkVat($countryCode, $number, $requester = null)
     {
         $curlAvailable = function_exists('curl_init');
         $soapAvailable = extension_loaded('soap');
@@ -85,17 +89,17 @@ class VatNumberViesClient
             throw new PrestaShopException('Neither the curl nor the soap PHP extension is available, VAT numbers cannot be verified');
         }
         if (!$curlAvailable) {
-            return static::checkVatSoap($countryCode, $number);
+            return static::checkVatSoap($countryCode, $number, $requester);
         }
 
         try {
-            return static::checkVatRest($countryCode, $number);
+            return static::checkVatRest($countryCode, $number, $requester);
         } catch (VatNumberViesUnavailableException $restException) {
             if (!$soapAvailable) {
                 throw $restException;
             }
             try {
-                $result = static::checkVatSoap($countryCode, $number);
+                $result = static::checkVatSoap($countryCode, $number, $requester);
             } catch (VatNumberViesUnavailableException $soapException) {
                 throw new VatNumberViesUnavailableException('REST: '.$restException->getMessage().'; SOAP fallback: '.$soapException->getMessage());
             }
@@ -110,17 +114,23 @@ class VatNumberViesClient
      *
      * @param string $countryCode VIES country code, e.g. 'NL' or 'EL'.
      * @param string $number Number part after the country prefix.
+     * @param array|null $requester See checkVat().
      *
      * @return array Same shape as checkVat().
      *
      * @throws VatNumberViesUnavailableException when the REST interface cannot answer.
      */
-    protected static function checkVatRest($countryCode, $number)
+    protected static function checkVatRest($countryCode, $number, $requester = null)
     {
-        $payload = json_encode([
+        $request = [
             'countryCode' => (string) $countryCode,
             'vatNumber'   => (string) $number,
-        ]);
+        ];
+        if ($requester) {
+            $request['requesterMemberStateCode'] = (string) $requester['countryCode'];
+            $request['requesterNumber'] = (string) $requester['number'];
+        }
+        $payload = json_encode($request);
 
         $ch = curl_init(static::ENDPOINT);
         curl_setopt_array($ch, [
@@ -191,18 +201,19 @@ class VatNumberViesClient
     /**
      * Ask VIES via the legacy SOAP interface. Fallback transport, used when
      * REST failed or cURL is unavailable. Same backend database, so answers
-     * are identical; SOAP just does not return a consultation ID.
+     * are identical. With a requester the checkVatApprox operation is used,
+     * which (like REST) returns a consultation ID; without one the plain
+     * checkVat operation is used, which does not.
      *
      * @param string $countryCode VIES country code, e.g. 'NL' or 'EL'.
      * @param string $number Number part after the country prefix.
+     * @param array|null $requester See checkVat().
      *
-     * @return array Same shape as checkVat(), with an empty
-     *               'requestIdentifier' (the SOAP checkVat operation does
-     *               not provide one).
+     * @return array Same shape as checkVat().
      *
      * @throws VatNumberViesUnavailableException when the SOAP interface cannot answer.
      */
-    protected static function checkVatSoap($countryCode, $number)
+    protected static function checkVatSoap($countryCode, $number, $requester = null)
     {
         // The WSDL download does not honor SoapClient timeouts, it uses this
         // ini setting. Narrow it for the call, restore afterwards.
@@ -219,10 +230,19 @@ class VatNumberViesClient
                     'http' => ['timeout' => static::TIMEOUT],
                 ]),
             ]);
-            $response = $client->checkVat([
-                'countryCode' => (string) $countryCode,
-                'vatNumber'   => (string) $number,
-            ]);
+            if ($requester) {
+                $response = $client->checkVatApprox([
+                    'countryCode'          => (string) $countryCode,
+                    'vatNumber'            => (string) $number,
+                    'requesterCountryCode' => (string) $requester['countryCode'],
+                    'requesterVatNumber'   => (string) $requester['number'],
+                ]);
+            } else {
+                $response = $client->checkVat([
+                    'countryCode' => (string) $countryCode,
+                    'vatNumber'   => (string) $number,
+                ]);
+            }
         } catch (SoapFault $fault) {
             $code = strtoupper(trim($fault->getMessage()));
             if (in_array($code, static::$hardRejectCodes)) {
@@ -242,11 +262,16 @@ class VatNumberViesClient
             ini_set('default_socket_timeout', (string) $previousTimeout);
         }
 
+        // checkVat answers with name/address, checkVatApprox with
+        // traderName/traderAddress plus requestIdentifier.
+        $name = isset($response->traderName) ? $response->traderName : (isset($response->name) ? $response->name : '');
+        $address = isset($response->traderAddress) ? $response->traderAddress : (isset($response->address) ? $response->address : '');
+
         return [
             'valid'             => !empty($response->valid),
-            'requestIdentifier' => '',
-            'name'              => static::cleanTraderString(isset($response->name) ? $response->name : ''),
-            'address'           => static::cleanTraderString(isset($response->address) ? $response->address : ''),
+            'requestIdentifier' => isset($response->requestIdentifier) ? (string) $response->requestIdentifier : '',
+            'name'              => static::cleanTraderString($name),
+            'address'           => static::cleanTraderString($address),
         ];
     }
 

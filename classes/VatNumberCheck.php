@@ -396,40 +396,90 @@ class VatNumberCheck extends ObjectModel
     }
 
     /**
-     * Normalized VAT numbers of addresses that have been active since a
-     * date: the address itself was created or changed since then, or its
-     * customer placed an order since then.
+     * Normalized VAT numbers found on customer addresses. With a date, only
+     * addresses that have been active since then: the address itself was
+     * created or changed since then, or its customer placed an order since
+     * then. Without a date, all addresses.
      *
-     * @param string $date Date in Y-m-d format.
+     * @param string|null $sinceDate Date in Y-m-d format, or null for all.
      *
-     * @return string[] Normalized numbers, pSQL-quoted for use in IN ().
+     * @return string[] Unique normalized numbers.
      *
      * @throws PrestaShopException
      */
-    protected static function getActiveNumbersSince($date)
+    public static function getAddressNumbers($sinceDate = null)
     {
-        $rows = Db::getInstance()->executeS(
-            (new DbQuery())
-                ->select('DISTINCT a.vat_number')
-                ->from('address', 'a')
-                ->where('a.deleted = 0')
-                ->where('a.vat_number != \'\'')
-                ->where(
-                    'a.date_upd >= \''.pSQL($date).'\''
-                    .' OR a.id_customer IN ('
-                    .'SELECT o.id_customer FROM `'._DB_PREFIX_.'orders` o WHERE o.date_add >= \''.pSQL($date).'\''
-                    .')'
-                )
-        );
+        $query = (new DbQuery())
+            ->select('DISTINCT a.vat_number')
+            ->from('address', 'a')
+            ->where('a.deleted = 0')
+            ->where('a.vat_number != \'\'');
+        if ($sinceDate !== null && $sinceDate !== '') {
+            $query->where(
+                'a.date_upd >= \''.pSQL($sinceDate).'\''
+                .' OR a.id_customer IN ('
+                .'SELECT o.id_customer FROM `'._DB_PREFIX_.'orders` o WHERE o.date_add >= \''.pSQL($sinceDate).'\''
+                .')'
+            );
+        }
+        $rows = Db::getInstance()->executeS($query);
         $numbers = [];
         foreach (is_array($rows) ? $rows : [] as $row) {
             $normalized = static::normalize($row['vat_number']);
-            if ($normalized !== '') {
-                $numbers[] = '\''.pSQL($normalized).'\'';
+            if ($normalized !== '' && $normalized !== strtoupper(VatNumber::VAT_EXEMPTION_FLAG)) {
+                $numbers[$normalized] = true;
             }
         }
 
-        return $numbers;
+        return array_keys($numbers);
+    }
+
+    /**
+     * Queue VAT numbers that exist on customer addresses but have no check
+     * record yet, so the cron verifies them. This is what makes the queue
+     * self healing: numbers stored while checking was off, imported
+     * addresses, or anything that slipped past the save-time check all get
+     * picked up eventually.
+     *
+     * @param string|null $sinceDate Only addresses active since this date,
+     *                               null for all.
+     * @param int $limit Maximum numbers to queue in one call.
+     *
+     * @return int Number of rows created.
+     *
+     * @throws PrestaShopException
+     */
+    public static function queueMissing($sinceDate, $limit)
+    {
+        $numbers = static::getAddressNumbers($sinceDate);
+        if (!$numbers) {
+            return 0;
+        }
+        $quoted = array_map(function ($n) { return '\''.pSQL($n).'\''; }, $numbers);
+        $rows = Db::getInstance()->executeS(
+            (new DbQuery())
+                ->select('vat_number')
+                ->from('vatnumber_check')
+                ->where('vat_number IN ('.implode(', ', $quoted).')')
+        );
+        $known = [];
+        foreach (is_array($rows) ? $rows : [] as $row) {
+            $known[$row['vat_number']] = true;
+        }
+
+        $created = 0;
+        foreach ($numbers as $normalized) {
+            if (isset($known[$normalized])) {
+                continue;
+            }
+            if ($created >= (int) $limit) {
+                break;
+            }
+            static::recordResult($normalized, substr($normalized, 0, 2), static::STATUS_UNVERIFIED, static::SOURCE_FORMAT);
+            $created++;
+        }
+
+        return $created;
     }
 
     /**
@@ -450,7 +500,7 @@ class VatNumberCheck extends ObjectModel
      */
     public static function removeInactiveUnverified($date)
     {
-        $active = static::getActiveNumbersSince($date);
+        $active = array_map(function ($n) { return '\''.pSQL($n).'\''; }, static::getAddressNumbers($date));
         $sql = 'DELETE FROM `'._DB_PREFIX_.'vatnumber_check`'
             .' WHERE status = \''.pSQL(static::STATUS_UNVERIFIED).'\''
             .' AND source = \''.pSQL(static::SOURCE_FORMAT).'\'';
