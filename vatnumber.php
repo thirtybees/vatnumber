@@ -77,6 +77,14 @@ class VatNumber extends TaxManagerModule
     const CUSTOMER_RATE_LIMIT = 5;
     const CUSTOMER_RATE_WINDOW_SECONDS = 3600;
 
+    /**
+     * Live checks per window for visitors that cannot be tied to a customer
+     * yet (registration, guest checkout). Beyond this the number is still
+     * accepted, but provisionally, and the cron verifies it: a flood from
+     * anonymous sessions then costs the shop no VIES requests at all.
+     */
+    const ANONYMOUS_RATE_LIMIT = 30;
+
     /** Numbers named in one rejection log entry. */
     const MAX_REJECTED_IN_LOG = 20;
 
@@ -96,7 +104,7 @@ class VatNumber extends TaxManagerModule
     {
         $this->name = 'vatnumber';
         $this->tab = 'billing_invoicing';
-        $this->version = '2.7.5';
+        $this->version = '2.7.6';
         $this->author = 'thirty bees';
         $this->need_instance = true;
 
@@ -133,6 +141,9 @@ class VatNumber extends TaxManagerModule
         if (!parent::install()) {
             return false;
         }
+        // A re-install over a populated table must not destroy the audit
+        // trail when a later step fails.
+        $tableExisted = static::checkTableExists();
         try {
             $ok = $this->executeSqlScript('install')
                 && $this->registerHook('actionObjectAddressValidateController')
@@ -149,13 +160,34 @@ class VatNumber extends TaxManagerModule
                 && static::setGlobal('VATNUMBER_CRON_TOKEN', static::generateCronToken());
         } catch (Exception $e) {
             PrestaShopLogger::addLog('vatnumber: install failed: '.$e->getMessage(), 3);
+            $this->_errors[] = $e->getMessage();
             $ok = false;
         }
         if (!$ok) {
-            $this->uninstall();
+            if (!$this->_errors) {
+                $this->_errors[] = 'One of the installation steps failed, see the shop log';
+            }
+            try {
+                $this->uninstall($tableExisted);
+            } catch (Exception $e) {
+                PrestaShopLogger::addLog('vatnumber: rollback after failed install failed too: '.$e->getMessage(), 3);
+                $this->_errors[] = $e->getMessage();
+            }
         }
 
         return $ok;
+    }
+
+    /**
+     * @return bool
+     * @throws PrestaShopException
+     */
+    public static function checkTableExists()
+    {
+        $pattern = str_replace('_', '\_', _DB_PREFIX_.'vatnumber_check');
+        $rows = Db::getInstance()->executeS('SHOW TABLES LIKE \''.pSQL($pattern).'\'');
+
+        return is_array($rows) && count($rows) > 0;
     }
 
     /**
@@ -283,6 +315,8 @@ class VatNumber extends TaxManagerModule
             'upgrade-2.7.5-id-customer',
             'upgrade-2.7.5-valid-proof',
             'upgrade-2.7.5-status-index',
+            'upgrade-2.7.6-customer-index',
+            'upgrade-2.7.6-drop-status-index',
         ];
         if (!in_array($script, $allowed, true)) {
             throw new PrestaShopException('Unknown SQL script: '.$script);
@@ -320,7 +354,7 @@ class VatNumber extends TaxManagerModule
      */
     public static function checkTableHasColumn($column)
     {
-        $rows = Db::getInstance()->executeS('SHOW COLUMNS FROM `'._DB_PREFIX_.'vatnumber_check` LIKE \''.pSQL($column).'\'');
+        $rows = Db::getInstance()->executeS('SHOW COLUMNS FROM `'._DB_PREFIX_.'vatnumber_check` WHERE Field = \''.pSQL($column).'\'');
 
         return is_array($rows) && count($rows) > 0;
     }
@@ -351,21 +385,23 @@ class VatNumber extends TaxManagerModule
      * @throws PrestaShopDatabaseException
      * @throws PrestaShopException
      */
-    public function uninstall()
+    public function uninstall($keepTable = false)
     {
-        return $this->executeSqlScript('uninstall')
+        // Core's uninstall calls disable(), which rewrites
+        // VATNUMBER_MANAGEMENT; that key is therefore removed last.
+        return ($keepTable || $this->executeSqlScript('uninstall'))
                && $this->uninstallTab()
                && Configuration::deleteByName('VATNUMBER_OWN_NUMBER')
                && Configuration::deleteByName('VATNUMBER_CHECKING')
                && Configuration::deleteByName('VATNUMBER_MANUAL')
                && Configuration::deleteByName('VATNUMBER_COUNTRY')
-               && Configuration::deleteByName('VATNUMBER_MANAGEMENT')
                && Configuration::deleteByName('VATNUMBER_REQUIRE_VALIDATION')
                && Configuration::deleteByName('VATNUMBER_VERIFY_SINCE')
                && Configuration::deleteByName('VATNUMBER_CRON_TOKEN')
                && Configuration::deleteByName('VATNUMBER_VIES_DOWN_UNTIL')
                && Configuration::deleteByName('VATNUMBER_CRON_LAST_RUN')
-               && parent::uninstall();
+               && parent::uninstall()
+               && Configuration::deleteByName('VATNUMBER_MANAGEMENT');
     }
 
     /**
@@ -735,8 +771,13 @@ class VatNumber extends TaxManagerModule
         if (static::checkNumberShape($normalized) !== null) {
             return false;
         }
+        if (!static::countryMatchesPrefix(Country::getIsoById((int) $address->id_country), substr($normalized, 0, 2))) {
+            return false;
+        }
 
-        return static::countryMatchesPrefix(Country::getIsoById((int) $address->id_country), substr($normalized, 0, 2));
+        // Same business name rule as on save; matters for addresses that
+        // bypassed validateNumber() (imports, webservice).
+        return static::companyNameFor($address, (int) $address->id_customer) !== '';
     }
 
     /**
@@ -769,15 +810,15 @@ class VatNumber extends TaxManagerModule
             return true;
         }
 
+        // Which customer is doing this? Core sets Address->id_customer only
+        // after validateController(), and one step registration fills in a
+        // placeholder id, so the address field alone cannot be trusted.
+        $idCustomer = static::resolveCustomerId($address);
+
         // A VAT number belongs to a business. The theme may hide the
         // company field for some countries; fall back to the customer's
         // company before refusing.
-        $company = trim((string) $address->company);
-        if ($company === '' && (int) $address->id_customer) {
-            $customer = new Customer((int) $address->id_customer);
-            $company = Validate::isLoadedObject($customer) ? trim((string) $customer->company) : '';
-        }
-        if ($company === '') {
+        if (static::companyNameFor($address, $idCustomer) === '') {
             return static::translate('VAT number, but no company name given.');
         }
 
@@ -799,13 +840,63 @@ class VatNumber extends TaxManagerModule
         }
 
         if (Configuration::get('VATNUMBER_CHECKING')) {
-            $errors = static::webServiceCheck($normalized, (int) $address->id, (int) $address->id_customer);
+            $errors = static::webServiceCheck($normalized, (int) $address->id, $idCustomer);
             if (count($errors)) {
                 return $errors[0];
             }
         }
 
         return true;
+    }
+
+    /**
+     * The customer an address save belongs to, or 0 when unknown. The
+     * address field is only trusted when it matches the logged in customer;
+     * core assigns it after validation and uses a placeholder during one
+     * step registration.
+     *
+     * @param Address $address
+     *
+     * @return int
+     */
+    protected static function resolveCustomerId($address)
+    {
+        $context = Context::getContext();
+        $controller = ($context && isset($context->controller)) ? $context->controller : null;
+        if ($controller instanceof Controller && $controller->controller_type === 'admin') {
+            // Employees edit a real customer's address: the address field
+            // is authoritative here.
+            return (int) $address->id_customer;
+        }
+        if ($context && isset($context->customer) && $context->customer instanceof Customer && (int) $context->customer->id) {
+            // Logged in front office customer, whatever the address says.
+            return (int) $context->customer->id;
+        }
+
+        // Registration or guest checkout: no trustworthy customer yet.
+        return 0;
+    }
+
+    /**
+     * Company name for a VAT number check: the address company, or the
+     * customer account's company when the address field is empty.
+     *
+     * @param Address $address
+     * @param int $idCustomer
+     *
+     * @return string
+     */
+    protected static function companyNameFor($address, $idCustomer)
+    {
+        $company = trim((string) $address->company);
+        if ($company === '' && $idCustomer) {
+            $customer = new Customer($idCustomer);
+            if (Validate::isLoadedObject($customer)) {
+                $company = trim((string) $customer->company);
+            }
+        }
+
+        return $company;
     }
 
     /**
@@ -855,10 +946,22 @@ class VatNumber extends TaxManagerModule
                 return [static::translate('VAT number not registered at your tax authorities.')];
             }
 
-            if (!$check && VatNumberCheck::countRecentByCustomer($idCustomer, static::CUSTOMER_RATE_WINDOW_SECONDS) >= static::CUSTOMER_RATE_LIMIT) {
-                PrestaShopLogger::addLog('vatnumber: customer '.(int) $idCustomer.' exceeded the VAT number check rate limit', 3);
+            if (!$check) {
+                $recent = VatNumberCheck::countRecentByCustomer($idCustomer, static::CUSTOMER_RATE_WINDOW_SECONDS);
+                if ($idCustomer && $recent >= static::CUSTOMER_RATE_LIMIT) {
+                    PrestaShopLogger::addLog('vatnumber: customer '.(int) $idCustomer.' exceeded the VAT number check rate limit', 3);
 
-                return [static::translate('Too many different VAT numbers were entered in a short time. Please try again later.')];
+                    return [static::translate('Too many different VAT numbers were entered in a short time. Please try again later.')];
+                }
+                if (!$idCustomer && $recent >= static::ANONYMOUS_RATE_LIMIT) {
+                    // Anonymous flood (registration or guest checkout): the
+                    // number is accepted, but VIES is not asked on its
+                    // behalf; the cron verifies it.
+                    PrestaShopLogger::addLog('vatnumber: anonymous VAT number check rate limit reached, '.$normalized.' queued instead of checked live', 2);
+                    static::acceptProvisionally(null, $normalized, $countryCode, $idAddress, 0);
+
+                    return [];
+                }
             }
 
             if ((int) static::getGlobal('VATNUMBER_VIES_DOWN_UNTIL') > time()) {
@@ -1055,13 +1158,14 @@ class VatNumber extends TaxManagerModule
         }
 
         try {
-            $activeNumbers = $verifySince !== null
-                ? VatNumberCheck::getAddressNumbers($verifySince)
-                : VatNumberCheck::getAddressNumbers(null);
             if ($verifySince !== null) {
-                $result['dropped_old'] = VatNumberCheck::removeInactiveUnverified($activeNumbers);
+                // Historical (soft deleted) addresses count as active too:
+                // orders and their invoices still point at them.
+                $result['dropped_old'] = VatNumberCheck::removeInactiveUnverified(VatNumberCheck::getAddressNumbers($verifySince, true));
             }
-            $result['queued'] = VatNumberCheck::queueMissing($activeNumbers, $limit * static::CRON_QUEUE_AHEAD_FACTOR);
+            // Only numbers on live addresses are queued for verification.
+            $liveNumbers = VatNumberCheck::getAddressNumbers($verifySince);
+            $result['queued'] = VatNumberCheck::queueMissing($liveNumbers, $limit * static::CRON_QUEUE_AHEAD_FACTOR);
         } catch (Exception $e) {
             PrestaShopLogger::addLog('vatnumber cron: queue maintenance skipped: '.$e->getMessage(), 3);
         }
@@ -1102,6 +1206,14 @@ class VatNumber extends TaxManagerModule
 
         try {
             $result = VatNumberViesClient::checkVat($row['country_code'], substr($number, 2), static::getRequester());
+        } catch (PrestaShopException $e) {
+            // No transport at all (no curl, no soap): every row would fail
+            // the same way. Say it once, loudly, and stop.
+            static::openBreaker();
+            PrestaShopLogger::addLog('vatnumber cron: VAT number checking is broken, stopping the run. Fix this server problem: '.$e->getMessage(), 4);
+            $summary['vies_down'] = true;
+
+            return false;
         } catch (VatNumberViesUnavailableException $e) {
             // Still down, or down again. Stop the run, the rest would fail
             // the same way. The row is rotated to the back so one member
@@ -1285,7 +1397,7 @@ class VatNumber extends TaxManagerModule
     protected function processSaveSettings()
     {
         $verifySince = trim(static::getStringValue('VATNUMBER_VERIFY_SINCE'));
-        if ($verifySince !== '' && !Validate::isDate($verifySince)) {
+        if ($verifySince !== '' && (!Validate::isDate($verifySince) || !strtotime($verifySince))) {
             return $this->displayError($this->l('The verification start date must be a valid date (YYYY-MM-DD), or empty to verify all numbers.'));
         }
 
@@ -1294,9 +1406,14 @@ class VatNumber extends TaxManagerModule
             return $this->displayError($this->l('Your own VAT number is not a valid EU VAT number. Enter it with the country prefix, or leave it empty.'));
         }
 
+        $idCountry = (int) Tools::getValue('VATNUMBER_COUNTRY');
+        if ($idCountry && !Validate::isLoadedObject(new Country($idCountry))) {
+            return $this->displayError($this->l('The selected country does not exist.'));
+        }
+
         $previousSince = trim((string) Configuration::get('VATNUMBER_VERIFY_SINCE'));
         $updates = [
-            'VATNUMBER_COUNTRY'            => (int) Tools::getValue('VATNUMBER_COUNTRY'),
+            'VATNUMBER_COUNTRY'            => $idCountry,
             'VATNUMBER_CHECKING'           => (int) (bool) Tools::getValue('VATNUMBER_CHECKING'),
             'VATNUMBER_REQUIRE_VALIDATION' => (int) (bool) Tools::getValue('VATNUMBER_REQUIRE_VALIDATION'),
             'VATNUMBER_OWN_NUMBER'         => $ownNumber,
@@ -1317,7 +1434,7 @@ class VatNumber extends TaxManagerModule
         // hide that the settings themselves were saved.
         if ($verifySince !== '' && $verifySince !== $previousSince) {
             try {
-                $dropped = VatNumberCheck::removeInactiveUnverified(VatNumberCheck::getAddressNumbers($verifySince));
+                $dropped = VatNumberCheck::removeInactiveUnverified(VatNumberCheck::getAddressNumbers($verifySince, true));
                 $pending = VatNumberCheck::countPending();
 
                 return $this->displayConfirmation(sprintf(

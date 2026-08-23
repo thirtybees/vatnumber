@@ -43,31 +43,19 @@ function upgrade_module_2_7_0($module)
     if (Configuration::get('VATNUMBER_REQUIRE_VALIDATION') === false) {
         $result = Configuration::updateValue('VATNUMBER_REQUIRE_VALIDATION', 0) && $result;
     }
-    if (!Configuration::get('VATNUMBER_CRON_TOKEN')) {
-        $result = Configuration::updateValue('VATNUMBER_CRON_TOKEN', VatNumber::generateCronToken()) && $result;
+    if (!VatNumber::getGlobal('VATNUMBER_CRON_TOKEN')) {
+        $result = VatNumber::setGlobal('VATNUMBER_CRON_TOKEN', VatNumber::generateCronToken()) && $result;
     }
 
-    $rows = Db::getInstance()->executeS(
-        (new DbQuery())
-            ->select('DISTINCT vat_number')
-            ->from('address')
-            ->where('deleted = 0')
-            ->where('vat_number != \'\'')
-    );
-    if (is_array($rows)) {
-        foreach ($rows as $row) {
-            $normalized = VatNumberCheck::normalize($row['vat_number']);
-            if (strlen($normalized) < 4 || VatNumberCheck::isLegacySentinel($normalized)) {
-                continue;
-            }
-            try {
-                if (!VatNumberCheck::findByNumber($normalized)) {
-                    VatNumberCheck::recordResult($normalized, substr($normalized, 0, 2), VatNumberCheck::STATUS_UNVERIFIED, VatNumberCheck::SOURCE_FORMAT);
-                }
-            } catch (Exception $e) {
-                PrestaShopLogger::addLog('vatnumber upgrade: failed to seed '.$normalized.': '.$e->getMessage(), 3);
-            }
-        }
+    // Queue every stored number in bulk (chunked reads, one INSERT IGNORE
+    // per thousand rows), so an older shop with thousands of numbers does
+    // not time out here. The cron verifies them in batches afterwards.
+    try {
+        $queued = VatNumberCheck::queueMissing(VatNumberCheck::getAddressNumbers(null), PHP_INT_MAX);
+        PrestaShopLogger::addLog('vatnumber upgrade 2.7.0: queued '.$queued.' stored VAT number(s) for verification', 1);
+    } catch (Exception $e) {
+        // Not fatal: the scheduled task queues missing numbers on every run.
+        PrestaShopLogger::addLog('vatnumber upgrade 2.7.0: seeding skipped: '.$e->getMessage(), 3);
     }
 
     return $result;

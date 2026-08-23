@@ -210,7 +210,9 @@ class VatNumberCheck extends ObjectModel
     public static function getStatus($normalizedNumber)
     {
         if (!array_key_exists($normalizedNumber, static::$statusCache)) {
-            $status = Db::getInstance(_PS_USE_SQL_SLAVE_)->getValue(
+            // Master on purpose: a replica lagging behind a confirmation
+            // just written would tax a customer VIES has confirmed.
+            $status = Db::getInstance()->getValue(
                 (new DbQuery())
                     ->select('status')
                     ->from('vatnumber_check')
@@ -256,21 +258,26 @@ class VatNumberCheck extends ObjectModel
         }
         static::applyResult($check, $countryCode, $status, $source, $requestId, $traderName, $traderAddress, $idAddress, $idCustomer);
 
+        // Two flows can check the same new number at once and both try to
+        // INSERT against the unique key. Depending on debug settings core
+        // reports that as an exception or as a false return; either way
+        // the row exists now, so reload it and apply the result as update.
+        $saved = false;
         try {
             $saved = $check->save();
         } catch (PrestaShopDatabaseException $e) {
-            // Two flows checked the same new number at once and both tried
-            // to INSERT against the unique key. Reload and apply as update.
+            $saved = false;
+        }
+        if (!$saved) {
             $existing = static::findByNumber($normalizedNumber);
             if (!$existing) {
-                throw $e;
+                throw new PrestaShopException('Failed to save VAT number check result for '.$normalizedNumber.': '.Db::getInstance()->getMsgError());
             }
             $check = $existing;
             static::applyResult($check, $countryCode, $status, $source, $requestId, $traderName, $traderAddress, $idAddress, $idCustomer);
-            $saved = $check->save();
-        }
-        if (!$saved) {
-            throw new PrestaShopException('Failed to save VAT number check result for '.$normalizedNumber);
+            if (!$check->save()) {
+                throw new PrestaShopException('Failed to update VAT number check result for '.$normalizedNumber.': '.Db::getInstance()->getMsgError());
+            }
         }
         static::$statusCache[$normalizedNumber] = $status;
 
@@ -297,7 +304,11 @@ class VatNumberCheck extends ObjectModel
         $check->country_code = strtoupper((string) $countryCode);
         $check->status = $status;
         $check->source = $source;
-        $check->vies_request_id = mb_substr((string) $requestId, 0, 64);
+        $requestId = mb_substr((string) $requestId, 0, 64);
+        if (!Validate::isGenericName($requestId)) {
+            $requestId = '';
+        }
+        $check->vies_request_id = $requestId;
         // VIES trader data is foreign input; a value the model's HTML check
         // would refuse must never make a successful VIES answer fail.
         $check->trader_name = Validate::isCleanHtml($traderName) ? (string) $traderName : '';
@@ -309,7 +320,7 @@ class VatNumberCheck extends ObjectModel
             $check->id_customer = (int) $idCustomer;
         }
         if ($status === static::STATUS_VALID && $source === static::SOURCE_VIES) {
-            $check->valid_request_id = mb_substr((string) $requestId, 0, 64);
+            $check->valid_request_id = $requestId;
             $check->valid_date = date('Y-m-d H:i:s');
         }
     }
@@ -342,9 +353,10 @@ class VatNumberCheck extends ObjectModel
     }
 
     /**
-     * How many distinct numbers a customer had checked in the last period.
-     * Used to stop one customer (or a script on their account) from
-     * triggering unbounded VIES requests with made up numbers.
+     * How many new numbers a customer had checked in the last period. Used
+     * to stop one customer (or a script on their account) from triggering
+     * unbounded VIES requests with made up numbers. Customer 0 counts the
+     * checks of all anonymous visitors together.
      *
      * @param int $idCustomer
      * @param int $seconds Look-back window.
@@ -355,10 +367,6 @@ class VatNumberCheck extends ObjectModel
      */
     public static function countRecentByCustomer($idCustomer, $seconds)
     {
-        if (!(int) $idCustomer) {
-            return 0;
-        }
-
         return (int) Db::getInstance()->getValue(
             (new DbQuery())
                 ->select('COUNT(*)')
@@ -512,7 +520,7 @@ class VatNumberCheck extends ObjectModel
         $numbers = [];
         foreach ($rows as $row) {
             $normalized = static::normalize($row['vat_number']);
-            if ($normalized !== '' && !static::isLegacySentinel($normalized)) {
+            if (strlen($normalized) >= 4 && !static::isLegacySentinel($normalized)) {
                 $numbers[$normalized] = true;
             }
         }
@@ -544,6 +552,7 @@ class VatNumberCheck extends ObjectModel
             (new DbQuery())
                 ->select('id_vatnumber_check, vat_number')
                 ->from('vatnumber_check')
+                ->limit(static::SQL_CHUNK_SIZE * 50)
                 ->where('status IN (\''.pSQL(static::STATUS_UNVERIFIED).'\', \''.pSQL(static::STATUS_INVALID).'\')')
                 ->where('date_upd < \''.pSQL($cutoff).'\'')
         );
@@ -586,6 +595,7 @@ class VatNumberCheck extends ObjectModel
             (new DbQuery())
                 ->select('id_vatnumber_check, vat_number')
                 ->from('vatnumber_check')
+                ->limit(static::SQL_CHUNK_SIZE * 50)
                 ->where('status = \''.pSQL(static::STATUS_UNVERIFIED).'\'')
                 ->where('source = \''.pSQL(static::SOURCE_FORMAT).'\'')
         );

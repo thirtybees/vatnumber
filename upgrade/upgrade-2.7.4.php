@@ -39,17 +39,28 @@ function upgrade_module_2_7_4($module)
 {
     $result = $module->installTab();
 
-    $flagged = (int) Db::getInstance()->getValue(
+    // Candidates by a cheap LIKE, the exact match (any spelling or spacing
+    // of the sentinel) by the same rule the runtime uses.
+    $rows = Db::getInstance()->executeS(
         (new DbQuery())
-            ->select('COUNT(*)')
+            ->select('id_address, vat_number')
             ->from('address')
-            ->where('TRIM(vat_number) = \''.pSQL(VatNumber::VAT_EXEMPTION_FLAG).'\'')
+            ->where('vat_number LIKE \'%xempt%\'')
     );
-    if ($flagged > 0) {
-        if (!Db::getInstance()->update('address', ['vat_number' => ''], 'TRIM(vat_number) = \''.pSQL(VatNumber::VAT_EXEMPTION_FLAG).'\'')) {
+    if ($rows === false) {
+        throw new PrestaShopException('vatnumber upgrade 2.7.4: failed to read addresses: '.Db::getInstance()->getMsgError());
+    }
+    $flagged = [];
+    foreach ($rows as $row) {
+        if (VatNumberCheck::isLegacySentinel($row['vat_number'])) {
+            $flagged[] = (int) $row['id_address'];
+        }
+    }
+    if ($flagged) {
+        if (!Db::getInstance()->update('address', ['vat_number' => ''], 'id_address IN ('.implode(', ', $flagged).')')) {
             throw new PrestaShopException('vatnumber upgrade 2.7.4: failed to clear the legacy exemption flag from addresses: '.Db::getInstance()->getMsgError());
         }
-        PrestaShopLogger::addLog('vatnumber upgrade 2.7.4: the checkbox exemption was removed; cleared its flag from '.$flagged.' address(es). Those customers now pay VAT unless they provide a valid VAT number.', 2);
+        PrestaShopLogger::addLog('vatnumber upgrade 2.7.4: the checkbox exemption was removed; cleared its flag from '.count($flagged).' address(es). Those customers now pay VAT unless they provide a valid VAT number.', 2);
     }
 
     $result = Configuration::deleteByName('VATNUMBER_MANUAL') && $result;

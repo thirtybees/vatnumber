@@ -38,7 +38,9 @@ if (!defined('_TB_VERSION_')) {
  */
 function upgrade_module_2_7_5($module)
 {
-    $result = true;
+    // Make sure the table exists before probing it; a shop that lost it
+    // gets it back with the complete current schema.
+    $result = $module->executeSqlScript('install');
 
     if (!VatNumber::checkTableHasColumn('id_address')) {
         $result = $module->executeSqlScript('upgrade-2.7.5-id-address') && $result;

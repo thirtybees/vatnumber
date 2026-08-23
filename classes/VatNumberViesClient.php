@@ -103,6 +103,13 @@ class VatNumberViesClient
             throw new PrestaShopException('Neither the curl nor the soap PHP extension is available, VAT numbers cannot be verified');
         }
         if (!$curlAvailable) {
+            if ($interactive) {
+                // SOAP (WSDL download, soft timeouts) is too slow to make a
+                // customer wait for it; the outage path accepts provisionally
+                // and the cron verifies through SOAP later.
+                throw new VatNumberViesUnavailableException('cURL is not available; interactive checks do not use the SOAP transport');
+            }
+
             return static::checkVatSoap($countryCode, $number, $requester);
         }
 

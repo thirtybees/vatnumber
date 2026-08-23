@@ -115,6 +115,9 @@ cron queues and verifies imported numbers afterwards.
   an hour is asked to try again later, to keep scripts from abusing VIES.
 - Settings are per shop in multistore; the check table, the cron token, the
   cron state and the VIES circuit breaker are shared by all shops.
+- The sql/ directory is protected by an .htaccess file (Apache). On nginx
+  or other servers, deny web access to modules/vatnumber/sql/ yourself;
+  the scripts only disclose the table layout.
 
 ## Settings overview
 
