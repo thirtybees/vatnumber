@@ -1,0 +1,1 @@
+ALTER TABLE `PREFIX_vatnumber_check` ADD COLUMN `valid_request_id` VARCHAR(64) NOT NULL DEFAULT '', ADD COLUMN `valid_date` DATETIME NULL DEFAULT NULL

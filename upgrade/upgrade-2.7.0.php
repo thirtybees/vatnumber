@@ -53,12 +53,11 @@ function upgrade_module_2_7_0($module)
             ->from('address')
             ->where('deleted = 0')
             ->where('vat_number != \'\'')
-            ->where('vat_number != \''.pSQL(VatNumber::VAT_EXEMPTION_FLAG).'\'')
     );
     if (is_array($rows)) {
         foreach ($rows as $row) {
             $normalized = VatNumberCheck::normalize($row['vat_number']);
-            if (strlen($normalized) < 4) {
+            if (strlen($normalized) < 4 || VatNumberCheck::isLegacySentinel($normalized)) {
                 continue;
             }
             try {

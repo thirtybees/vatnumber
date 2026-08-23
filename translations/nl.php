@@ -3,7 +3,6 @@
 global $_MODULE;
 $_MODULE = array();
 
-$_MODULE['<{vatnumber}prestashop>vatnumber_b83272c7487874249f2249bdbb3bacd7'] = '%d btw-nummer(s) wachten nog op VIES-verificatie (geaccepteerd terwijl de dienst onbereikbaar was).';
 $_MODULE['<{vatnumber}prestashop>vatnumber_1ccfb12cb9310c4821de8bb46c6413c1'] = '%s is GEEN geldig btw-nummer';
 $_MODULE['<{vatnumber}prestashop>vatnumber_e7161b32a16284042be3ec04eefd316a'] = '%s is een geldig btw-nummer';
 $_MODULE['<{vatnumber}prestashop>vatnumber_038b34b36ec9eaf5f96d11e17f208f1b'] = '-- Kies een land --';
@@ -20,9 +19,7 @@ $_MODULE['<{vatnumber}prestashop>vatnumber_d55032733add57a402d67e096c0bbd38'] = 
 $_MODULE['<{vatnumber}prestashop>vatnumber_f557912d9b773f3b62ab61d7239e69ec'] = 'Klanten uit uw eigen land betalen altijd btw. Spaties en punten in het nummer zijn geen probleem, Griekse nummers met het voorvoegsel GR worden als EL behandeld en Noord-Ierse bedrijven (XI-nummer, GB-adres) worden ondersteund.';
 $_MODULE['<{vatnumber}prestashop>howto_f557912d9b773f3b62ab61d7239e69ec'] = 'Klanten uit uw eigen land betalen altijd btw. Spaties en punten in het nummer zijn geen probleem, Griekse nummers met het voorvoegsel GR worden als EL behandeld en Noord-Ierse bedrijven (XI-nummer, GB-adres) worden ondersteund.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_dbb3b1f95b0e769884b0c923bad3dc9f'] = 'Datum in het formaat JJJJ-MM-DD, of leeg om alles te verifieren. Nummers in de wachtrij van klanten zonder adreswijziging en zonder bestelling sinds deze datum worden uit de verificatiewachtrij verwijderd, direct bij het opslaan en daarna bij elke geplande run. Handig na een upgrade van een shop met jarenlange oude adressen. Verwijderde nummers worden gewoon opnieuw live gecontroleerd als zo\'n klant ooit terugkomt.';
-$_MODULE['<{vatnumber}prestashop>vatnumber_b9f5c797ebbf55adccdd8539a65a0241'] = 'Uitgeschakeld';
 $_MODULE['<{vatnumber}prestashop>vatnumber_c3611ab7e05da6ec6a6d66098df71627'] = 'Elke run controleert %d nummers. Om een grote wachtrij sneller weg te werken voegt u &limit=%d aan de URL toe (het maximum per run).';
-$_MODULE['<{vatnumber}prestashop>vatnumber_00d23a76e43b46dae9ec7aa9dcbebb32'] = 'Ingeschakeld';
 $_MODULE['<{vatnumber}prestashop>vatnumber_05895abf8f690cf55fa0c2f01711deaa'] = 'Ingeschakeld (standaard): klanten blijven btw betalen totdat VIES hun nummer heeft bevestigd. Uitgeschakeld: klanten krijgen de btw-vrijstelling direct, ook terwijl hun nummer nog op verificatie wacht. Ingeschakeld is veiliger voor u, uitgeschakeld is vriendelijker voor de klant. Alleen relevant wanneer automatische controle aan staat. Nummers die VIES heeft afgekeurd krijgen nooit de vrijstelling.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_b25c4046a0e5c918765d51e10d709113'] = 'Vul het volledige nummer in inclusief de tweeletterige landcode, bijvoorbeeld %s. Spaties, punten en streepjes zijn geen probleem. Gebruik EL of GR voor Griekenland en XI voor Noord-Ierland.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_2b094aac9f12f2abd921781ec657b254'] = 'Alleen vrijstellen na geslaagde controle';
@@ -36,7 +33,6 @@ $_MODULE['<{vatnumber}prestashop>vatnumber_a320d57d1a95824ee2aaae041318dfe8'] = 
 $_MODULE['<{vatnumber}prestashop>vatnumber_510cd0a0423dfa1f6625d5a6d759eba4'] = 'Ongeldig voorvoegsel van het btw-nummer.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_f3ebffd526642b32c38f50c59f1940df'] = 'Ongeldig btw-nummer.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_a33780d81d8562b28d64f6845d4872a2'] = 'Ongeldig, afgekeurd door VIES';
-$_MODULE['<{vatnumber}prestashop>vatnumber_ac2f1948d920772ec5c77ce30a63d347'] = 'Laatst gecontroleerd:';
 $_MODULE['<{vatnumber}prestashop>vatnumber_829d3dea92182c823c5cc6e7ac04f815'] = 'Laatste verificatierun: %s';
 $_MODULE['<{vatnumber}prestashop>vatnumber_a3ca6ea2e8305187403c445ea575b44f'] = 'Nooit gecontroleerd';
 $_MODULE['<{vatnumber}prestashop>vatnumber_6f4eefc51f052b0bf8f1725bccf59855'] = 'Er wachten geen btw-nummers op verificatie.';
@@ -54,10 +50,8 @@ $_MODULE['<{vatnumber}prestashop>vatnumber_d0d06807f70765c03c21234cbfdad6de'] = 
 $_MODULE['<{vatnumber}prestashop>vatnumber_1e9771852eaffc84bcc616d25f64795a'] = 'Sommige landen (bijvoorbeeld Duitsland) geven via VIES geen naam en adres van de onderneming vrij. Het nummer is desondanks geldig.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_6e1c537858e82d84375156336236db08'] = 'Het btw-nummer van deze shop, inclusief landcode. Indien ingevuld wordt het bij elke VIES-controle meegestuurd en geeft VIES een consultatie-ID terug: het formele bewijs van de controle waar de belastingdienst om vraagt. Leeg laten om te controleren zonder bewijs-ID\'s.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_bc2285c91c86dfb3ed91e6682a69b43b'] = 'De startdatum voor verificatie moet een geldige datum zijn (JJJJ-MM-DD), of leeg om alle nummers te verifieren.';
-$_MODULE['<{vatnumber}prestashop>vatnumber_a70006cb65bca9a9aa42df479d37a472'] = 'De verificatietaak heeft de afgelopen %d uur niet gedraaid. Nummers blijven ongeverifieerd totdat deze draait. Stel de onderstaande URL in als geplande taak.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_2b1d586a3905df7dce992e1b92a011e5'] = 'Deze module voegt afhandeling van btw-vrijstellingen voor diverse belastingwetten toe.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_7c0e3094381fa63a9164ec9016df93f7'] = 'Dit nummer is nooit bij VIES gecontroleerd.';
-$_MODULE['<{vatnumber}prestashop>vatnumber_4558e065e7ec5ce29f11cd6c70ff221f'] = 'Dit nummer is geaccepteerd terwijl VIES onbereikbaar was. De geplande taak verifieert het nog; u kunt het ook nu controleren met de validatietool.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_cdaa77ebb17c78904c4535d52c6e354f'] = 'Dit gebruikt VIES, de officiele webservice van de Europese Gemeenschap. Bevestigde nummers worden lokaal gecachet, dus herhaalde controles hebben geen netwerktoegang nodig. Bij storingen van de webservice (die komen geregeld voor) worden btw-nummers voorlopig geaccepteerd om de klant niet te hinderen, en automatisch opnieuw gecontroleerd door de geplande taak hieronder. Zulke gebeurtenissen worden gelogd; wilt u er ook e-mail over ontvangen, zet dan \'Minimale ernstgraad\' in Geavanceerde instellingen -> Logbestanden op 3 of lager.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_0ecbf4ca9d543f1c42325db8b334192e'] = 'Om wachtende nummers te verifieren en oude automatisch opnieuw te controleren, roept u deze URL aan vanuit een geplande taak (bijvoorbeeld elk uur, via de cronjobs-module of de crontab van uw server):';
 $_MODULE['<{vatnumber}prestashop>vatnumber_087e07668ea45692678e1d5f809b2f24'] = 'Adres onderneming';
@@ -76,7 +70,6 @@ $_MODULE['<{vatnumber}prestashop>vatnumber_c1f073086b973a6dd2cec9b51cc5aa32'] = 
 $_MODULE['<{vatnumber}prestashop>vatnumber_ac955836c7098c2b4142ca183731ba9f'] = 'Wel een btw-nummer, maar geen bedrijfsnaam opgegeven.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_dac4ecf8f5e43c798779d95bafaa6de3'] = 'Op deze bestelling is btw berekend.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_acfb5582e933170a650373786cdb3658'] = 'VIES-consultatie-ID';
-$_MODULE['<{vatnumber}prestashop>vatnumber_20c450660dd69b7f249b6a5baf95c2cd'] = 'VIES-consultatie-ID (bewijs):';
 $_MODULE['<{vatnumber}prestashop>vatnumber_d6dd3f797596413b86bb4af2e98b9a97'] = 'VIES was niet bereikbaar (%s). Probeer het later opnieuw.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_ad180f79b1647e0104abaf52657a6d02'] = 'VIES heeft dit nummer afgekeurd. Was deze bestelling vrijgesteld, controleer haar dan en herfactureer zo nodig de btw.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_dd85c2d9cb41dc1fe9316c361c969f92'] = 'Geldig, bevestigd door VIES';
@@ -90,7 +83,6 @@ $_MODULE['<{vatnumber}prestashop>howto_93cf0eabb9b1ecee521688c482c59d16'] = 'Een
 $_MODULE['<{vatnumber}prestashop>howto_26438dea77da6d030d95f47b257d1f0d'] = 'Geavanceerde instellingen > Logbestanden';
 $_MODULE['<{vatnumber}prestashop>howto_0ca88066c014448b3922d433bfcbda98'] = 'Advies';
 $_MODULE['<{vatnumber}prestashop>howto_1106274eac265f8740efd310e5d03688'] = 'Altijd btw rekenen voor klanten uit';
-$_MODULE['<{vatnumber}prestashop>howto_4e5454a996c3c1c47570d11a3ddb280f'] = 'Onderaan toont het paneel "Btw-vrijstelling" of er btw is berekend, het nummer van deze bestelling met een gekleurde status (groen = bevestigd door VIES, rood = afgekeurd, oranje = wacht op verificatie, grijs = nooit gecontroleerd), de datum van de laatste controle en het consultatie-ID als bewijs. Bij rood staat een waarschuwing om de bestelling na te kijken en zo nodig met btw te herfactureren.';
 $_MODULE['<{vatnumber}prestashop>howto_9aa21a00421bef476b0ce7c92a0b88d8'] = 'Een klant controleren in de back office';
 $_MODULE['<{vatnumber}prestashop>howto_03a6d8afdd380f6d7cdb75fbaa96c0d7'] = 'Klanten > Adressen';
 $_MODULE['<{vatnumber}prestashop>howto_e5d0dc3b58ccc077b9248372b856ef2a'] = 'Klanten blijven btw betalen totdat VIES hun nummer heeft bevestigd.';
@@ -133,3 +125,19 @@ $_MODULE['<{vatnumber}prestashop>howto_b250599882857b2d9f941a79ec818574'] = 'zet
 $_MODULE['<{vatnumber}prestashop>howto_4ed33802af52eaf51a60d37e26163e34'] = 'hercontroleert bevestigde nummers elke 180 dagen, omdat btw-registraties kunnen vervallen;';
 $_MODULE['<{vatnumber}prestashop>howto_88f72c855fd23ae9a85a175e43bae93b'] = 'het btw-nummer staat altijd op het klantadres, niet op de klantkaart. Open het onder';
 $_MODULE['<{vatnumber}prestashop>howto_8107e29e28d843ae56862c0f402ea275'] = 'verifieert wachtende nummers (%d per run; voeg &limit=%d aan de URL toe om een grote wachtrij sneller weg te werken);';
+$_MODULE['<{vatnumber}prestashop>vatnumber_969107da519aed5cea02c36533737d8f'] = '%d btw-nummer(s) wachten op VIES-verificatie.';
+$_MODULE['<{vatnumber}prestashop>vatnumber_6068f968dcdedebc715e35b10992d228'] = 'Huidige status sinds:';
+$_MODULE['<{vatnumber}prestashop>vatnumber_7e52e47a85b1cb31ceb2962a966c8824'] = 'Laatst als geldig bevestigd door VIES:';
+$_MODULE['<{vatnumber}prestashop>vatnumber_2d52769f382397dc70ae15d21a5f7ddf'] = 'consultatie-ID (bewijs):';
+$_MODULE['<{vatnumber}prestashop>vatnumber_a6266c70ba31b31fba1fdd64f2112b00'] = 'Er is geen cron-token opgeslagen; de cron-URL zou geweigerd worden. Reset de module om er een te genereren.';
+$_MODULE['<{vatnumber}prestashop>vatnumber_ef7d96ac1328615ad5fc31b85cdc58a4'] = 'Instellingen bijgewerkt. De startdatum wordt bij de volgende geplande run toegepast.';
+$_MODULE['<{vatnumber}prestashop>vatnumber_b4e343e9694d4799435e5031f749a73e'] = 'Strikte modus staat uit: nummers die nog op verificatie wachten krijgen de vrijstelling al. Zet hem aan om btw te rekenen totdat VIES een nummer heeft bevestigd.';
+$_MODULE['<{vatnumber}prestashop>vatnumber_89d563fc87e86cda31cedd2b783fd8f9'] = 'De verificatietaak heeft de afgelopen %d uur niet gedraaid. Nieuwe nummers blijven ongeverifieerd en bevestigde nummers worden niet hercontroleerd totdat deze draait. Stel de onderstaande URL in als geplande taak.';
+$_MODULE['<{vatnumber}prestashop>vatnumber_32fc1c3ccc88e26aae40a18f6013d390'] = 'Dit nummer wacht nog op verificatie. De geplande taak verifieert het; u kunt het ook nu controleren met de validatietool.';
+$_MODULE['<{vatnumber}prestashop>vatnumber_feac8570563dec1b3f879b38c8745aee'] = 'Deze bestelling is geplaatst met de vinkje-vrijstelling van moduleversies voor 2.7.4; er is geen btw-nummer om te verifieren.';
+$_MODULE['<{vatnumber}prestashop>vatnumber_eb1d6382de5b89b2020d1d76699e16d8'] = 'Dit toont de huidige status van het nummer. Bestellingen houden hun eigen btw-bedragen; een latere afkeuring verandert niets aan een al uitgegeven factuur.';
+$_MODULE['<{vatnumber}prestashop>vatnumber_27c57853a59424005a7d2f64a4b331a5'] = 'Er zijn in korte tijd te veel verschillende btw-nummers ingevoerd. Probeer het later opnieuw.';
+$_MODULE['<{vatnumber}prestashop>howto_aa7e60ba69afed4f17b17b3e6df610df'] = 'Een klant die binnen een uur meer dan een handvol verschillende btw-nummers invoert, wordt gevraagd het later opnieuw te proberen; dat is een script, geen typefout.';
+$_MODULE['<{vatnumber}prestashop>howto_b1c6b6361b23d61bc584cbd2ecb3dcef'] = 'Onderaan toont het paneel "Btw-vrijstelling" of er btw is berekend, het nummer van deze bestelling met een gekleurde status (groen = bevestigd door VIES, rood = afgekeurd, oranje = wacht op verificatie, grijs = nooit gecontroleerd), wanneer het nummer voor het laatst als geldig is bevestigd en het consultatie-ID van die bevestiging als bewijs. Bij rood staat een waarschuwing om de bestelling na te kijken en zo nodig met btw te herfactureren.';
+$_MODULE['<{vatnumber}prestashop>howto_9f2322c2c4278691231151c4b3cd9f0d'] = 'Houd "Bedrijf" in het adresformaat van EU-landen (Localisatie > Landen): een btw-nummer zonder bedrijfsnaam wordt geweigerd. Ontbreekt het veld, dan wordt de bedrijfsnaam van het klantaccount gebruikt.';
+$_MODULE['<{vatnumber}prestashop>howto_749fe89784b21af5faddceffeb989bb2'] = 'Met "Alleen vrijstellen na geslaagde controle" aan betaalt een klant wiens nummer nog niet bevestigd kon worden btw over die bestelling zonder te horen waarom. Vermeld dit in uw voorwaarden, of betaal de btw terug zodra het nummer is bevestigd.';

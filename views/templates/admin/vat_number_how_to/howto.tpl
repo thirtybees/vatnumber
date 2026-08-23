@@ -93,7 +93,7 @@
         <li>
             <b>{l s='The order' mod='vatnumber'}</b> ({l s='answers: was this order rightfully VAT exempt?' mod='vatnumber'}):
             {l s='open the order under' mod='vatnumber'} <a href="{$vatnumber_orders_link|escape:'html':'UTF-8'}">{l s='Orders' mod='vatnumber'}</a>.
-            {l s='At the bottom, the "VAT exemption" panel shows whether VAT was charged, the number used for this order with a colored status (green = confirmed by VIES, red = rejected, orange = awaiting verification, grey = never checked), the date of the last check and the consultation ID as proof. Red comes with a warning to review the order and re-invoice VAT if needed.' mod='vatnumber'}
+            {l s='At the bottom, the "VAT exemption" panel shows whether VAT was charged, the number used for this order with a colored status (green = confirmed by VIES, red = rejected, orange = awaiting verification, grey = never checked), when the number was last confirmed valid and the consultation ID of that confirmation as proof. Red comes with a warning to review the order and re-invoice VAT if needed.' mod='vatnumber'}
         </li>
         <li>
             <b>{l s='The address' mod='vatnumber'}</b> ({l s='answers: what is the current number?' mod='vatnumber'}):
@@ -117,5 +117,8 @@
         <li>{l s='Confirmed numbers are served from the local cache for 30 days and re-verified every 180 days, because VAT registrations expire.' mod='vatnumber'}</li>
         <li>{l s='Uninstalling the module deletes the check results table, including the consultation IDs. Make a database backup first.' mod='vatnumber'}</li>
         <li>{l s='The checkbox based exemption without a VAT number of older versions has been removed; the VAT number is the only route to an exemption.' mod='vatnumber'}</li>
+        <li>{l s='Keep "Company" in the address format of EU countries (Localization > Countries): a VAT number without a company name is refused. If the field is missing, the company name of the customer account is used instead.' mod='vatnumber'}</li>
+        <li>{l s='With "Exempt only after successful check" on, a customer whose number could not be confirmed yet pays VAT on that order without being told why. Mention it in your terms, or refund the VAT once the number is confirmed.' mod='vatnumber'}</li>
+        <li>{l s='A customer who enters more than a handful of different VAT numbers within an hour is asked to try again later; that is a script, not a typo.' mod='vatnumber'}</li>
     </ul>
 </div>

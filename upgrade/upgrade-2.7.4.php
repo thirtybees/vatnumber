@@ -43,10 +43,10 @@ function upgrade_module_2_7_4($module)
         (new DbQuery())
             ->select('COUNT(*)')
             ->from('address')
-            ->where('vat_number = \''.pSQL(VatNumber::VAT_EXEMPTION_FLAG).'\'')
+            ->where('TRIM(vat_number) = \''.pSQL(VatNumber::VAT_EXEMPTION_FLAG).'\'')
     );
     if ($flagged > 0) {
-        if (!Db::getInstance()->update('address', ['vat_number' => ''], 'vat_number = \''.pSQL(VatNumber::VAT_EXEMPTION_FLAG).'\'')) {
+        if (!Db::getInstance()->update('address', ['vat_number' => ''], 'TRIM(vat_number) = \''.pSQL(VatNumber::VAT_EXEMPTION_FLAG).'\'')) {
             throw new PrestaShopException('vatnumber upgrade 2.7.4: failed to clear the legacy exemption flag from addresses: '.Db::getInstance()->getMsgError());
         }
         PrestaShopLogger::addLog('vatnumber upgrade 2.7.4: the checkbox exemption was removed; cleared its flag from '.$flagged.' address(es). Those customers now pay VAT unless they provide a valid VAT number.', 2);

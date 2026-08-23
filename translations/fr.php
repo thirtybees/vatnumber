@@ -3,7 +3,6 @@
 global $_MODULE;
 $_MODULE = array();
 
-$_MODULE['<{vatnumber}prestashop>vatnumber_b83272c7487874249f2249bdbb3bacd7'] = '%d numero(s) de TVA attendent encore la verification VIES (acceptes pendant que le service etait indisponible).';
 $_MODULE['<{vatnumber}prestashop>vatnumber_1ccfb12cb9310c4821de8bb46c6413c1'] = '%s n\'est PAS un numero de TVA valide';
 $_MODULE['<{vatnumber}prestashop>vatnumber_e7161b32a16284042be3ec04eefd316a'] = '%s est un numero de TVA valide';
 $_MODULE['<{vatnumber}prestashop>vatnumber_038b34b36ec9eaf5f96d11e17f208f1b'] = '-- Choisissez un pays --';
@@ -20,9 +19,7 @@ $_MODULE['<{vatnumber}prestashop>vatnumber_d55032733add57a402d67e096c0bbd38'] = 
 $_MODULE['<{vatnumber}prestashop>vatnumber_f557912d9b773f3b62ab61d7239e69ec'] = 'Les clients de votre propre pays paient toujours la TVA. Les espaces et les points dans le numero ne posent aucun probleme, les numeros grecs saisis avec le prefixe GR sont traites comme EL, et les entreprises d\'Irlande du Nord (numero XI, adresse GB) sont prises en charge.';
 $_MODULE['<{vatnumber}prestashop>howto_f557912d9b773f3b62ab61d7239e69ec'] = 'Les clients de votre propre pays paient toujours la TVA. Les espaces et les points dans le numero ne posent aucun probleme, les numeros grecs saisis avec le prefixe GR sont traites comme EL, et les entreprises d\'Irlande du Nord (numero XI, adresse GB) sont prises en charge.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_dbb3b1f95b0e769884b0c923bad3dc9f'] = 'Date au format AAAA-MM-JJ, ou vide pour tout verifier. Les numeros en file d\'attente de clients sans changement d\'adresse ni commande depuis cette date sont retires de la file de verification, immediatement a l\'enregistrement puis a chaque execution planifiee. Utile apres la mise a jour d\'une boutique avec des annees d\'anciennes adresses. Les numeros retires sont simplement reverifies en direct si un tel client revient un jour.';
-$_MODULE['<{vatnumber}prestashop>vatnumber_b9f5c797ebbf55adccdd8539a65a0241'] = 'Desactive';
 $_MODULE['<{vatnumber}prestashop>vatnumber_c3611ab7e05da6ec6a6d66098df71627'] = 'Chaque execution verifie %d numeros. Pour vider plus vite une grande file, ajoutez &limit=%d a l\'URL (le maximum par execution).';
-$_MODULE['<{vatnumber}prestashop>vatnumber_00d23a76e43b46dae9ec7aa9dcbebb32'] = 'Active';
 $_MODULE['<{vatnumber}prestashop>vatnumber_05895abf8f690cf55fa0c2f01711deaa'] = 'Active (par defaut) : les clients continuent de payer la TVA jusqu\'a ce que VIES ait confirme leur numero. Desactive : les clients obtiennent l\'exoneration de TVA immediatement, meme pendant que leur numero attend encore la verification. Active est plus sur pour vous, desactive est plus agreable pour le client. Pertinent uniquement lorsque la verification automatique est activee. Les numeros rejetes par VIES n\'obtiennent jamais l\'exoneration.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_b25c4046a0e5c918765d51e10d709113'] = 'Saisissez le numero complet avec le prefixe pays a deux lettres, par exemple %s. Les espaces, points et tirets ne posent aucun probleme. Utilisez EL ou GR pour la Grece et XI pour l\'Irlande du Nord.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_2b094aac9f12f2abd921781ec657b254'] = 'Exonerer uniquement apres une verification reussie';
@@ -36,7 +33,6 @@ $_MODULE['<{vatnumber}prestashop>vatnumber_a320d57d1a95824ee2aaae041318dfe8'] = 
 $_MODULE['<{vatnumber}prestashop>vatnumber_510cd0a0423dfa1f6625d5a6d759eba4'] = 'Prefixe du numero de TVA invalide.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_f3ebffd526642b32c38f50c59f1940df'] = 'Numero de TVA invalide.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_a33780d81d8562b28d64f6845d4872a2'] = 'Invalide, rejete par VIES';
-$_MODULE['<{vatnumber}prestashop>vatnumber_ac2f1948d920772ec5c77ce30a63d347'] = 'Derniere verification :';
 $_MODULE['<{vatnumber}prestashop>vatnumber_829d3dea92182c823c5cc6e7ac04f815'] = 'Derniere execution de verification : %s';
 $_MODULE['<{vatnumber}prestashop>vatnumber_a3ca6ea2e8305187403c445ea575b44f'] = 'Jamais verifie';
 $_MODULE['<{vatnumber}prestashop>vatnumber_6f4eefc51f052b0bf8f1725bccf59855'] = 'Aucun numero de TVA n\'attend de verification.';
@@ -54,10 +50,8 @@ $_MODULE['<{vatnumber}prestashop>vatnumber_d0d06807f70765c03c21234cbfdad6de'] = 
 $_MODULE['<{vatnumber}prestashop>vatnumber_1e9771852eaffc84bcc616d25f64795a'] = 'Certains pays (par exemple l\'Allemagne) ne divulguent pas le nom et l\'adresse de l\'entreprise via VIES. Le numero est neanmoins valide.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_6e1c537858e82d84375156336236db08'] = 'Le numero de TVA de cette boutique, avec le prefixe pays. S\'il est renseigne, il est envoye avec chaque verification VIES et VIES renvoie alors un ID de consultation : la preuve formelle de la verification demandee par les autorites fiscales. Laissez vide pour verifier sans ID de preuve.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_bc2285c91c86dfb3ed91e6682a69b43b'] = 'La date de debut de verification doit etre une date valide (AAAA-MM-JJ), ou vide pour verifier tous les numeros.';
-$_MODULE['<{vatnumber}prestashop>vatnumber_a70006cb65bca9a9aa42df479d37a472'] = 'La tache de verification ne s\'est pas executee depuis %d heures. Les numeros resteront non verifies tant qu\'elle ne s\'execute pas. Configurez l\'URL ci-dessous comme tache planifiee.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_2b1d586a3905df7dce992e1b92a011e5'] = 'Ce module ajoute la gestion des exonerations de TVA pour diverses legislations fiscales.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_7c0e3094381fa63a9164ec9016df93f7'] = 'Ce numero n\'a jamais ete verifie aupres de VIES.';
-$_MODULE['<{vatnumber}prestashop>vatnumber_4558e065e7ec5ce29f11cd6c70ff221f'] = 'Ce numero a ete accepte pendant que VIES etait indisponible. La tache planifiee le verifiera ; vous pouvez aussi le verifier maintenant avec l\'outil de validation.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_cdaa77ebb17c78904c4535d52c6e354f'] = 'Ceci utilise VIES, le service web officiel de la Communaute europeenne. Les numeros confirmes sont mis en cache localement, les verifications repetees ne necessitent donc aucun acces reseau. En cas de panne du service web (elles sont assez frequentes), les numeros de TVA sont acceptes provisoirement pour ne pas gener le client, et reverifies automatiquement par la tache planifiee ci-dessous. Ces evenements sont journalises ; pour les recevoir aussi par e-mail, reglez \'Niveau de gravite minimal\' dans Parametres avances -> Journaux sur 3 ou moins.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_0ecbf4ca9d543f1c42325db8b334192e'] = 'Pour verifier les numeros en attente et reverifier automatiquement les anciens, appelez cette URL depuis une tache planifiee (par exemple toutes les heures, via le module cronjobs ou la crontab de votre serveur) :';
 $_MODULE['<{vatnumber}prestashop>vatnumber_087e07668ea45692678e1d5f809b2f24'] = 'Adresse de l\'entreprise';
@@ -76,7 +70,6 @@ $_MODULE['<{vatnumber}prestashop>vatnumber_c1f073086b973a6dd2cec9b51cc5aa32'] = 
 $_MODULE['<{vatnumber}prestashop>vatnumber_ac955836c7098c2b4142ca183731ba9f'] = 'Numero de TVA fourni, mais aucun nom d\'entreprise.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_dac4ecf8f5e43c798779d95bafaa6de3'] = 'La TVA a ete facturee sur cette commande.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_acfb5582e933170a650373786cdb3658'] = 'ID de consultation VIES';
-$_MODULE['<{vatnumber}prestashop>vatnumber_20c450660dd69b7f249b6a5baf95c2cd'] = 'ID de consultation VIES (preuve) :';
 $_MODULE['<{vatnumber}prestashop>vatnumber_d6dd3f797596413b86bb4af2e98b9a97'] = 'VIES est injoignable (%s). Reessayez plus tard.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_ad180f79b1647e0104abaf52657a6d02'] = 'VIES a rejete ce numero. Si cette commande etait exoneree, verifiez-la et refacturez la TVA si necessaire.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_dd85c2d9cb41dc1fe9316c361c969f92'] = 'Valide, confirme par VIES';
@@ -90,7 +83,6 @@ $_MODULE['<{vatnumber}prestashop>howto_93cf0eabb9b1ecee521688c482c59d16'] = 'Un 
 $_MODULE['<{vatnumber}prestashop>howto_26438dea77da6d030d95f47b257d1f0d'] = 'Parametres avances > Journaux';
 $_MODULE['<{vatnumber}prestashop>howto_0ca88066c014448b3922d433bfcbda98'] = 'Conseil';
 $_MODULE['<{vatnumber}prestashop>howto_1106274eac265f8740efd310e5d03688'] = 'Toujours appliquer la TVA pour les clients de';
-$_MODULE['<{vatnumber}prestashop>howto_4e5454a996c3c1c47570d11a3ddb280f'] = 'En bas, le panneau "Exoneration de TVA" indique si la TVA a ete facturee, le numero utilise pour cette commande avec un statut en couleur (vert = confirme par VIES, rouge = rejete, orange = en attente de verification, gris = jamais verifie), la date de la derniere verification et l\'ID de consultation comme preuve. Le rouge s\'accompagne d\'un avertissement invitant a verifier la commande et a refacturer la TVA si necessaire.';
 $_MODULE['<{vatnumber}prestashop>howto_9aa21a00421bef476b0ce7c92a0b88d8'] = 'Verifier un client dans le back-office';
 $_MODULE['<{vatnumber}prestashop>howto_03a6d8afdd380f6d7cdb75fbaa96c0d7'] = 'Clients > Adresses';
 $_MODULE['<{vatnumber}prestashop>howto_e5d0dc3b58ccc077b9248372b856ef2a'] = 'Les clients continuent de payer la TVA jusqu\'a ce que VIES ait confirme leur numero.';
@@ -133,3 +125,19 @@ $_MODULE['<{vatnumber}prestashop>howto_b250599882857b2d9f941a79ec818574'] = 'met
 $_MODULE['<{vatnumber}prestashop>howto_4ed33802af52eaf51a60d37e26163e34'] = 'reverifie les numeros confirmes tous les 180 jours, car les immatriculations a la TVA peuvent expirer ;';
 $_MODULE['<{vatnumber}prestashop>howto_88f72c855fd23ae9a85a175e43bae93b'] = 'le numero de TVA se trouve toujours sur l\'adresse du client, pas sur la fiche client. Ouvrez-la sous';
 $_MODULE['<{vatnumber}prestashop>howto_8107e29e28d843ae56862c0f402ea275'] = 'verifie les numeros en attente (%d par execution ; ajoutez &limit=%d a l\'URL pour vider plus vite une grande file) ;';
+$_MODULE['<{vatnumber}prestashop>vatnumber_969107da519aed5cea02c36533737d8f'] = '%d numero(s) de TVA attendent la verification VIES.';
+$_MODULE['<{vatnumber}prestashop>vatnumber_6068f968dcdedebc715e35b10992d228'] = 'Statut actuel depuis :';
+$_MODULE['<{vatnumber}prestashop>vatnumber_7e52e47a85b1cb31ceb2962a966c8824'] = 'Derniere confirmation de validite par VIES :';
+$_MODULE['<{vatnumber}prestashop>vatnumber_2d52769f382397dc70ae15d21a5f7ddf'] = 'ID de consultation (preuve) :';
+$_MODULE['<{vatnumber}prestashop>vatnumber_a6266c70ba31b31fba1fdd64f2112b00'] = 'Aucun jeton cron n\'est enregistre ; l\'URL cron serait refusee. Reinitialisez le module pour en generer un.';
+$_MODULE['<{vatnumber}prestashop>vatnumber_ef7d96ac1328615ad5fc31b85cdc58a4'] = 'Parametres mis a jour. La date de debut sera appliquee lors de la prochaine execution planifiee.';
+$_MODULE['<{vatnumber}prestashop>vatnumber_b4e343e9694d4799435e5031f749a73e'] = 'Le mode strict est desactive : les numeros encore en attente de verification beneficient deja de l\'exoneration. Activez-le pour facturer la TVA jusqu\'a ce que VIES ait confirme un numero.';
+$_MODULE['<{vatnumber}prestashop>vatnumber_89d563fc87e86cda31cedd2b783fd8f9'] = 'La tache de verification ne s\'est pas executee depuis %d heures. Les nouveaux numeros restent non verifies et les numeros confirmes ne sont pas reverifies tant qu\'elle ne s\'execute pas. Configurez l\'URL ci-dessous comme tache planifiee.';
+$_MODULE['<{vatnumber}prestashop>vatnumber_32fc1c3ccc88e26aae40a18f6013d390'] = 'Ce numero attend encore la verification. La tache planifiee le verifiera ; vous pouvez aussi le verifier maintenant avec l\'outil de validation.';
+$_MODULE['<{vatnumber}prestashop>vatnumber_feac8570563dec1b3f879b38c8745aee'] = 'Cette commande a ete passee avec l\'exoneration par case a cocher des versions du module anterieures a 2.7.4 ; il n\'y a pas de numero de TVA a verifier.';
+$_MODULE['<{vatnumber}prestashop>vatnumber_eb1d6382de5b89b2020d1d76699e16d8'] = 'Ceci montre l\'etat actuel du numero. Les commandes conservent leurs propres montants de TVA ; un rejet ulterieur ne modifie pas une facture deja emise.';
+$_MODULE['<{vatnumber}prestashop>vatnumber_27c57853a59424005a7d2f64a4b331a5'] = 'Trop de numeros de TVA differents ont ete saisis en peu de temps. Veuillez reessayer plus tard.';
+$_MODULE['<{vatnumber}prestashop>howto_aa7e60ba69afed4f17b17b3e6df610df'] = 'Un client qui saisit plus d\'une poignee de numeros de TVA differents en une heure est invite a reessayer plus tard ; c\'est un script, pas une faute de frappe.';
+$_MODULE['<{vatnumber}prestashop>howto_b1c6b6361b23d61bc584cbd2ecb3dcef'] = 'En bas, le panneau "Exoneration de TVA" indique si la TVA a ete facturee, le numero utilise pour cette commande avec un statut en couleur (vert = confirme par VIES, rouge = rejete, orange = en attente de verification, gris = jamais verifie), la date de la derniere confirmation de validite et l\'ID de consultation de cette confirmation comme preuve. Le rouge s\'accompagne d\'un avertissement invitant a verifier la commande et a refacturer la TVA si necessaire.';
+$_MODULE['<{vatnumber}prestashop>howto_9f2322c2c4278691231151c4b3cd9f0d'] = 'Conservez "Societe" dans le format d\'adresse des pays de l\'UE (Localisation > Pays) : un numero de TVA sans nom de societe est refuse. Si le champ manque, le nom de societe du compte client est utilise.';
+$_MODULE['<{vatnumber}prestashop>howto_749fe89784b21af5faddceffeb989bb2'] = 'Avec "Exonerer uniquement apres une verification reussie" active, un client dont le numero n\'a pas encore pu etre confirme paie la TVA sur cette commande sans en connaitre la raison. Mentionnez-le dans vos conditions, ou remboursez la TVA une fois le numero confirme.';

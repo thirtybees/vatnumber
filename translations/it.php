@@ -3,7 +3,6 @@
 global $_MODULE;
 $_MODULE = array();
 
-$_MODULE['<{vatnumber}prestashop>vatnumber_b83272c7487874249f2249bdbb3bacd7'] = '%d numero/i di partita IVA in attesa di verifica VIES (accettati mentre il servizio non era raggiungibile).';
 $_MODULE['<{vatnumber}prestashop>vatnumber_1ccfb12cb9310c4821de8bb46c6413c1'] = '%s NON e una partita IVA valida';
 $_MODULE['<{vatnumber}prestashop>vatnumber_e7161b32a16284042be3ec04eefd316a'] = '%s e una partita IVA valida';
 $_MODULE['<{vatnumber}prestashop>vatnumber_038b34b36ec9eaf5f96d11e17f208f1b'] = '-- Scegliere un paese --';
@@ -20,9 +19,7 @@ $_MODULE['<{vatnumber}prestashop>vatnumber_d55032733add57a402d67e096c0bbd38'] = 
 $_MODULE['<{vatnumber}prestashop>vatnumber_f557912d9b773f3b62ab61d7239e69ec'] = 'I clienti del proprio paese pagano sempre l\'IVA. Spazi e punti nel numero non sono un problema, i numeri greci digitati con il prefisso GR vengono trattati come EL e le aziende dell\'Irlanda del Nord (numero XI, indirizzo GB) sono supportate.';
 $_MODULE['<{vatnumber}prestashop>howto_f557912d9b773f3b62ab61d7239e69ec'] = 'I clienti del proprio paese pagano sempre l\'IVA. Spazi e punti nel numero non sono un problema, i numeri greci digitati con il prefisso GR vengono trattati come EL e le aziende dell\'Irlanda del Nord (numero XI, indirizzo GB) sono supportate.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_dbb3b1f95b0e769884b0c923bad3dc9f'] = 'Data nel formato AAAA-MM-GG, oppure vuoto per verificare tutto. I numeri in coda di clienti senza modifiche all\'indirizzo e senza ordini da questa data vengono rimossi dalla coda di verifica, subito al salvataggio e a ogni esecuzione pianificata. Utile dopo l\'aggiornamento di un negozio con anni di vecchi indirizzi. I numeri rimossi vengono semplicemente ricontrollati dal vivo se il cliente dovesse tornare.';
-$_MODULE['<{vatnumber}prestashop>vatnumber_b9f5c797ebbf55adccdd8539a65a0241'] = 'Disattivato';
 $_MODULE['<{vatnumber}prestashop>vatnumber_c3611ab7e05da6ec6a6d66098df71627'] = 'Ogni esecuzione verifica %d numeri. Per smaltire piu in fretta una coda grande, aggiungete &limit=%d all\'URL (il massimo per esecuzione).';
-$_MODULE['<{vatnumber}prestashop>vatnumber_00d23a76e43b46dae9ec7aa9dcbebb32'] = 'Attivato';
 $_MODULE['<{vatnumber}prestashop>vatnumber_05895abf8f690cf55fa0c2f01711deaa'] = 'Attivato (predefinito): i clienti continuano a pagare l\'IVA finche VIES non ha confermato il numero. Disattivato: i clienti ottengono subito l\'esenzione IVA, anche mentre il loro numero e ancora in attesa di verifica. Attivato e piu sicuro per voi, disattivato e piu comodo per il cliente. Rilevante solo quando la verifica automatica e attiva. I numeri respinti da VIES non ottengono mai l\'esenzione.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_b25c4046a0e5c918765d51e10d709113'] = 'Inserite il numero completo incluso il prefisso paese di due lettere, per esempio %s. Spazi, punti e trattini non sono un problema. Usate EL o GR per la Grecia e XI per l\'Irlanda del Nord.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_2b094aac9f12f2abd921781ec657b254'] = 'Esenta solo dopo una verifica riuscita';
@@ -36,7 +33,6 @@ $_MODULE['<{vatnumber}prestashop>vatnumber_a320d57d1a95824ee2aaae041318dfe8'] = 
 $_MODULE['<{vatnumber}prestashop>vatnumber_510cd0a0423dfa1f6625d5a6d759eba4'] = 'Prefisso della partita IVA non valido.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_f3ebffd526642b32c38f50c59f1940df'] = 'Partita IVA non valida.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_a33780d81d8562b28d64f6845d4872a2'] = 'Non valida, respinta da VIES';
-$_MODULE['<{vatnumber}prestashop>vatnumber_ac2f1948d920772ec5c77ce30a63d347'] = 'Ultima verifica:';
 $_MODULE['<{vatnumber}prestashop>vatnumber_829d3dea92182c823c5cc6e7ac04f815'] = 'Ultima esecuzione di verifica: %s';
 $_MODULE['<{vatnumber}prestashop>vatnumber_a3ca6ea2e8305187403c445ea575b44f'] = 'Mai verificata';
 $_MODULE['<{vatnumber}prestashop>vatnumber_6f4eefc51f052b0bf8f1725bccf59855'] = 'Nessuna partita IVA in attesa di verifica.';
@@ -54,10 +50,8 @@ $_MODULE['<{vatnumber}prestashop>vatnumber_d0d06807f70765c03c21234cbfdad6de'] = 
 $_MODULE['<{vatnumber}prestashop>vatnumber_1e9771852eaffc84bcc616d25f64795a'] = 'Alcuni paesi (per esempio la Germania) non divulgano nome e indirizzo dell\'azienda tramite VIES. Il numero e comunque valido.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_6e1c537858e82d84375156336236db08'] = 'La partita IVA di questo negozio, incluso il prefisso paese. Se impostata, viene inviata con ogni verifica VIES e VIES restituisce un ID di consultazione: la prova formale della verifica richiesta dalle autorita fiscali. Lasciare vuoto per verificare senza ID di prova.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_bc2285c91c86dfb3ed91e6682a69b43b'] = 'La data di inizio verifica deve essere una data valida (AAAA-MM-GG), oppure vuota per verificare tutti i numeri.';
-$_MODULE['<{vatnumber}prestashop>vatnumber_a70006cb65bca9a9aa42df479d37a472'] = 'L\'attivita di verifica non e stata eseguita nelle ultime %d ore. I numeri resteranno non verificati finche non viene eseguita. Impostate l\'URL qui sotto come attivita pianificata.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_2b1d586a3905df7dce992e1b92a011e5'] = 'Questo modulo aggiunge la gestione delle esenzioni IVA per diverse normative fiscali.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_7c0e3094381fa63a9164ec9016df93f7'] = 'Questo numero non e mai stato verificato presso VIES.';
-$_MODULE['<{vatnumber}prestashop>vatnumber_4558e065e7ec5ce29f11cd6c70ff221f'] = 'Questo numero e stato accettato mentre VIES non era raggiungibile. L\'attivita pianificata lo verifichera; potete anche controllarlo ora con lo strumento di verifica.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_cdaa77ebb17c78904c4535d52c6e354f'] = 'Questo usa VIES, il servizio web ufficiale della Comunita Europea. I numeri confermati vengono memorizzati nella cache locale, quindi le verifiche ripetute non richiedono accesso alla rete. In caso di interruzioni del servizio (accadono abbastanza spesso), le partite IVA vengono accettate provvisoriamente per non disturbare il cliente e ricontrollate automaticamente dall\'attivita pianificata qui sotto. Questi eventi vengono registrati nel log; per riceverli anche via e-mail, impostate \'Livello di gravita minimo\' in Parametri avanzati -> Log su 3 o meno.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_0ecbf4ca9d543f1c42325db8b334192e'] = 'Per verificare i numeri in attesa e ricontrollare automaticamente quelli vecchi, richiamate questo URL da un\'attivita pianificata (per esempio ogni ora, tramite il modulo cronjobs o il crontab del vostro server):';
 $_MODULE['<{vatnumber}prestashop>vatnumber_087e07668ea45692678e1d5f809b2f24'] = 'Indirizzo dell\'azienda';
@@ -76,7 +70,6 @@ $_MODULE['<{vatnumber}prestashop>vatnumber_c1f073086b973a6dd2cec9b51cc5aa32'] = 
 $_MODULE['<{vatnumber}prestashop>vatnumber_ac955836c7098c2b4142ca183731ba9f'] = 'Partita IVA indicata, ma nessuna ragione sociale.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_dac4ecf8f5e43c798779d95bafaa6de3'] = 'Su questo ordine e stata addebitata l\'IVA.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_acfb5582e933170a650373786cdb3658'] = 'ID di consultazione VIES';
-$_MODULE['<{vatnumber}prestashop>vatnumber_20c450660dd69b7f249b6a5baf95c2cd'] = 'ID di consultazione VIES (prova):';
 $_MODULE['<{vatnumber}prestashop>vatnumber_d6dd3f797596413b86bb4af2e98b9a97'] = 'VIES non raggiungibile (%s). Riprovate piu tardi.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_ad180f79b1647e0104abaf52657a6d02'] = 'VIES ha respinto questo numero. Se questo ordine era esente, controllatelo e rifatturate l\'IVA se necessario.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_dd85c2d9cb41dc1fe9316c361c969f92'] = 'Valida, confermata da VIES';
@@ -90,7 +83,6 @@ $_MODULE['<{vatnumber}prestashop>howto_93cf0eabb9b1ecee521688c482c59d16'] = 'Uno
 $_MODULE['<{vatnumber}prestashop>howto_26438dea77da6d030d95f47b257d1f0d'] = 'Parametri avanzati > Log';
 $_MODULE['<{vatnumber}prestashop>howto_0ca88066c014448b3922d433bfcbda98'] = 'Consiglio';
 $_MODULE['<{vatnumber}prestashop>howto_1106274eac265f8740efd310e5d03688'] = 'Applica sempre l\'IVA ai clienti di';
-$_MODULE['<{vatnumber}prestashop>howto_4e5454a996c3c1c47570d11a3ddb280f'] = 'In fondo, il pannello "Esenzione IVA" mostra se e stata addebitata IVA, il numero usato per questo ordine con uno stato colorato (verde = confermato da VIES, rosso = respinto, arancione = in attesa di verifica, grigio = mai verificato), la data dell\'ultima verifica e l\'ID di consultazione come prova. Il rosso e accompagnato da un avviso per controllare l\'ordine e rifatturare l\'IVA se necessario.';
 $_MODULE['<{vatnumber}prestashop>howto_9aa21a00421bef476b0ce7c92a0b88d8'] = 'Controllare un cliente nel back office';
 $_MODULE['<{vatnumber}prestashop>howto_03a6d8afdd380f6d7cdb75fbaa96c0d7'] = 'Clienti > Indirizzi';
 $_MODULE['<{vatnumber}prestashop>howto_e5d0dc3b58ccc077b9248372b856ef2a'] = 'I clienti continuano a pagare l\'IVA finche VIES non ha confermato il numero.';
@@ -133,3 +125,19 @@ $_MODULE['<{vatnumber}prestashop>howto_b250599882857b2d9f941a79ec818574'] = 'met
 $_MODULE['<{vatnumber}prestashop>howto_4ed33802af52eaf51a60d37e26163e34'] = 'ricontrolla i numeri confermati ogni 180 giorni, perche le registrazioni IVA possono scadere;';
 $_MODULE['<{vatnumber}prestashop>howto_88f72c855fd23ae9a85a175e43bae93b'] = 'la partita IVA si trova sempre sull\'indirizzo del cliente, non sulla scheda cliente. Apritelo in';
 $_MODULE['<{vatnumber}prestashop>howto_8107e29e28d843ae56862c0f402ea275'] = 'verifica i numeri in attesa (%d per esecuzione; aggiungete &limit=%d all\'URL per smaltire piu in fretta una coda grande);';
+$_MODULE['<{vatnumber}prestashop>vatnumber_969107da519aed5cea02c36533737d8f'] = '%d numero/i di partita IVA in attesa di verifica VIES.';
+$_MODULE['<{vatnumber}prestashop>vatnumber_6068f968dcdedebc715e35b10992d228'] = 'Stato attuale dal:';
+$_MODULE['<{vatnumber}prestashop>vatnumber_7e52e47a85b1cb31ceb2962a966c8824'] = 'Ultima conferma di validita da VIES:';
+$_MODULE['<{vatnumber}prestashop>vatnumber_2d52769f382397dc70ae15d21a5f7ddf'] = 'ID di consultazione (prova):';
+$_MODULE['<{vatnumber}prestashop>vatnumber_a6266c70ba31b31fba1fdd64f2112b00'] = 'Nessun token cron salvato; l\'URL cron verrebbe rifiutato. Reimpostate il modulo per generarne uno.';
+$_MODULE['<{vatnumber}prestashop>vatnumber_ef7d96ac1328615ad5fc31b85cdc58a4'] = 'Impostazioni aggiornate. La data di inizio verra applicata alla prossima esecuzione pianificata.';
+$_MODULE['<{vatnumber}prestashop>vatnumber_b4e343e9694d4799435e5031f749a73e'] = 'La modalita rigorosa e disattivata: i numeri ancora in attesa di verifica ricevono gia l\'esenzione. Attivatela per addebitare l\'IVA finche VIES non ha confermato un numero.';
+$_MODULE['<{vatnumber}prestashop>vatnumber_89d563fc87e86cda31cedd2b783fd8f9'] = 'L\'attivita di verifica non e stata eseguita nelle ultime %d ore. I nuovi numeri restano non verificati e quelli confermati non vengono ricontrollati finche non viene eseguita. Impostate l\'URL qui sotto come attivita pianificata.';
+$_MODULE['<{vatnumber}prestashop>vatnumber_32fc1c3ccc88e26aae40a18f6013d390'] = 'Questo numero e ancora in attesa di verifica. L\'attivita pianificata lo verifichera; potete anche controllarlo ora con lo strumento di verifica.';
+$_MODULE['<{vatnumber}prestashop>vatnumber_feac8570563dec1b3f879b38c8745aee'] = 'Questo ordine e stato effettuato con l\'esenzione tramite casella delle versioni del modulo precedenti alla 2.7.4; non c\'e una partita IVA da verificare.';
+$_MODULE['<{vatnumber}prestashop>vatnumber_eb1d6382de5b89b2020d1d76699e16d8'] = 'Questo mostra lo stato attuale del numero. Gli ordini mantengono i propri importi IVA; un rifiuto successivo non modifica una fattura gia emessa.';
+$_MODULE['<{vatnumber}prestashop>vatnumber_27c57853a59424005a7d2f64a4b331a5'] = 'Sono stati inseriti troppi numeri di partita IVA diversi in poco tempo. Riprovate piu tardi.';
+$_MODULE['<{vatnumber}prestashop>howto_aa7e60ba69afed4f17b17b3e6df610df'] = 'A un cliente che inserisce piu di una manciata di partite IVA diverse in un\'ora viene chiesto di riprovare piu tardi; quello e uno script, non un refuso.';
+$_MODULE['<{vatnumber}prestashop>howto_b1c6b6361b23d61bc584cbd2ecb3dcef'] = 'In fondo, il pannello "Esenzione IVA" mostra se e stata addebitata IVA, il numero usato per questo ordine con uno stato colorato (verde = confermato da VIES, rosso = respinto, arancione = in attesa di verifica, grigio = mai verificato), quando il numero e stato confermato valido l\'ultima volta e l\'ID di consultazione di quella conferma come prova. Il rosso e accompagnato da un avviso per controllare l\'ordine e rifatturare l\'IVA se necessario.';
+$_MODULE['<{vatnumber}prestashop>howto_9f2322c2c4278691231151c4b3cd9f0d'] = 'Mantenete "Azienda" nel formato indirizzo dei paesi UE (Localizzazione > Paesi): una partita IVA senza ragione sociale viene rifiutata. Se il campo manca, viene usata la ragione sociale dell\'account cliente.';
+$_MODULE['<{vatnumber}prestashop>howto_749fe89784b21af5faddceffeb989bb2'] = 'Con "Esenta solo dopo una verifica riuscita" attivo, un cliente il cui numero non ha ancora potuto essere confermato paga l\'IVA su quell\'ordine senza sapere perche. Indicatelo nelle vostre condizioni, oppure rimborsate l\'IVA una volta confermato il numero.';

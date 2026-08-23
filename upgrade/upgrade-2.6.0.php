@@ -1,6 +1,6 @@
 <?php
 /**
- * Copyright (C) 2017-2024 thirty bees
+ * Copyright (C) 2017-2026 thirty bees
  *
  * NOTICE OF LICENSE
  *
@@ -13,7 +13,7 @@
  * to license@thirtybees.com so we can send you a copy immediately.
  *
  * @author    thirty bees <modules@thirtybees.com>
- * @copyright 2017-2024 thirty bees
+ * @copyright 2017-2026 thirty bees
  * @license   Academic Free License (AFL 3.0)
  */
 
@@ -24,13 +24,12 @@ if (!defined('_TB_VERSION_')) {
 /**
  * @param VatNumber $module
  *
- * @return true
+ * @return bool
  * @throws PrestaShopDatabaseException
  * @throws PrestaShopException
  */
 function upgrade_module_2_6_0($module)
 {
-    $module->registerHook('actionObjectAddressValidateController');
-    return true;
+    return (bool) $module->registerHook('actionObjectAddressValidateController');
 }
 

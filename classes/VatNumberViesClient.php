@@ -31,6 +31,11 @@ if (!defined('_TB_VERSION_')) {
  * interface is tried as a fallback; both talk to the same backend database.
  * Only when neither transport answers is the check reported as an outage.
  *
+ * Two time budgets: interactive checks (a customer saving an address) are
+ * capped hard at a few seconds and skip the SOAP fallback, so a slow VIES
+ * can never hang the checkout; batch checks (cron, back office tool) get
+ * the full budget.
+ *
  * Error philosophy: only codes that positively mean "this number is wrong"
  * cause a rejection. Every other non-VALID code (rate limits, member state
  * database down, unknown future codes) counts as "could not be asked", so a
@@ -42,11 +47,18 @@ class VatNumberViesClient
 
     const SOAP_WSDL = 'https://ec.europa.eu/taxation_customs/vies/checkVatService.wsdl';
 
-    /** Seconds to wait for the TCP/TLS connection. */
+    /** Batch budget: seconds to wait for the TCP/TLS connection. */
     const CONNECT_TIMEOUT = 5;
 
-    /** Seconds to wait for the complete response. */
+    /** Batch budget: seconds to wait for the complete response. */
     const TIMEOUT = 10;
+
+    /** Interactive budget (customer is waiting): connect / total seconds. */
+    const INTERACTIVE_CONNECT_TIMEOUT = 3;
+    const INTERACTIVE_TIMEOUT = 5;
+
+    /** Longest consultation ID we store; VIES issues ~16 characters. */
+    const REQUEST_ID_MAX_LENGTH = 64;
 
     /**
      * VIES error codes that positively mean the submitted number itself is
@@ -68,6 +80,8 @@ class VatNumberViesClient
      *                              ['countryCode' => .., 'number' => ..].
      *                              When given, VIES returns a consultation
      *                              ID (requestIdentifier) with the answer.
+     * @param bool $interactive True when a customer is waiting: short
+     *                          timeouts, no SOAP fallback.
      *
      * @return array with keys:
      *               'valid' (bool),
@@ -78,12 +92,12 @@ class VatNumberViesClient
      * @throws VatNumberViesUnavailableException when VIES cannot answer.
      * @throws PrestaShopException when no usable transport exists at all.
      */
-    public static function checkVat($countryCode, $number, $requester = null)
+    public static function checkVat($countryCode, $number, $requester = null, $interactive = false)
     {
         $curlAvailable = function_exists('curl_init');
-        $soapAvailable = extension_loaded('soap');
+        $soapAvailable = extension_loaded('soap') && !$interactive;
 
-        if (!$curlAvailable && !$soapAvailable) {
+        if (!$curlAvailable && !extension_loaded('soap')) {
             // Server misconfiguration, not an outage: surface it loudly
             // instead of silently disabling all checking.
             throw new PrestaShopException('Neither the curl nor the soap PHP extension is available, VAT numbers cannot be verified');
@@ -93,7 +107,7 @@ class VatNumberViesClient
         }
 
         try {
-            return static::checkVatRest($countryCode, $number, $requester);
+            return static::checkVatRest($countryCode, $number, $requester, $interactive);
         } catch (VatNumberViesUnavailableException $restException) {
             if (!$soapAvailable) {
                 throw $restException;
@@ -115,12 +129,13 @@ class VatNumberViesClient
      * @param string $countryCode VIES country code, e.g. 'NL' or 'EL'.
      * @param string $number Number part after the country prefix.
      * @param array|null $requester See checkVat().
+     * @param bool $interactive See checkVat().
      *
      * @return array Same shape as checkVat().
      *
      * @throws VatNumberViesUnavailableException when the REST interface cannot answer.
      */
-    protected static function checkVatRest($countryCode, $number, $requester = null)
+    protected static function checkVatRest($countryCode, $number, $requester = null, $interactive = false)
     {
         $request = [
             'countryCode' => (string) $countryCode,
@@ -130,16 +145,18 @@ class VatNumberViesClient
             $request['requesterMemberStateCode'] = (string) $requester['countryCode'];
             $request['requesterNumber'] = (string) $requester['number'];
         }
-        $payload = json_encode($request);
 
         $ch = curl_init(static::ENDPOINT);
+        if ($ch === false) {
+            throw new VatNumberViesUnavailableException('Could not initialise a cURL handle');
+        }
         curl_setopt_array($ch, [
             CURLOPT_POST           => true,
-            CURLOPT_POSTFIELDS     => $payload,
+            CURLOPT_POSTFIELDS     => json_encode($request),
             CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CONNECTTIMEOUT => static::CONNECT_TIMEOUT,
-            CURLOPT_TIMEOUT        => static::TIMEOUT,
+            CURLOPT_CONNECTTIMEOUT => $interactive ? static::INTERACTIVE_CONNECT_TIMEOUT : static::CONNECT_TIMEOUT,
+            CURLOPT_TIMEOUT        => $interactive ? static::INTERACTIVE_TIMEOUT : static::TIMEOUT,
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
         ]);
@@ -166,13 +183,14 @@ class VatNumberViesClient
         // the body. Check the body first, it is the more specific signal.
         $errorCode = static::extractErrorCode($data);
         if ($errorCode !== '' && $errorCode !== 'VALID') {
-            if (in_array($errorCode, static::$hardRejectCodes)) {
-                return [
-                    'valid'             => false,
-                    'requestIdentifier' => '',
-                    'name'              => '',
-                    'address'           => '',
-                ];
+            if (in_array($errorCode, static::$hardRejectCodes, true)) {
+                return static::rejection(isset($data['requestIdentifier']) ? $data['requestIdentifier'] : '');
+            }
+            if ($errorCode === 'INVALID_REQUESTER_INFO' && $requester) {
+                // Our own number was not accepted as requester (for example
+                // an XI number). The check itself is still possible without
+                // it, just without a consultation ID.
+                return static::checkVatRest($countryCode, $number, null, $interactive);
             }
 
             // Rate limits, member state outages, and any code we do not
@@ -188,11 +206,9 @@ class VatNumberViesClient
             throw new VatNumberViesUnavailableException('VIES response is missing the validity flag');
         }
 
-        $valid = !empty($data['isValid']) || !empty($data['valid']);
-
         return [
-            'valid'             => $valid,
-            'requestIdentifier' => isset($data['requestIdentifier']) ? (string) $data['requestIdentifier'] : '',
+            'valid'             => !empty($data['isValid']) || !empty($data['valid']),
+            'requestIdentifier' => static::cleanRequestId(isset($data['requestIdentifier']) ? $data['requestIdentifier'] : ''),
             'name'              => static::cleanTraderString(isset($data['name']) ? $data['name'] : ''),
             'address'           => static::cleanTraderString(isset($data['address']) ? $data['address'] : ''),
         ];
@@ -226,6 +242,7 @@ class VatNumberViesClient
             $client = new SoapClient(static::SOAP_WSDL, [
                 'connection_timeout' => static::CONNECT_TIMEOUT,
                 'exceptions'         => true,
+                'cache_wsdl'         => WSDL_CACHE_DISK,
                 'stream_context'     => stream_context_create([
                     'http' => ['timeout' => static::TIMEOUT],
                 ]),
@@ -245,13 +262,11 @@ class VatNumberViesClient
             }
         } catch (SoapFault $fault) {
             $code = strtoupper(trim($fault->getMessage()));
-            if (in_array($code, static::$hardRejectCodes)) {
-                return [
-                    'valid'             => false,
-                    'requestIdentifier' => '',
-                    'name'              => '',
-                    'address'           => '',
-                ];
+            if (in_array($code, static::$hardRejectCodes, true)) {
+                return static::rejection('');
+            }
+            if ($code === 'INVALID_REQUESTER_INFO' && $requester) {
+                return static::checkVatSoap($countryCode, $number, null);
             }
 
             // Outage codes and anything unrecognized (WSDL fetch failures,
@@ -269,9 +284,26 @@ class VatNumberViesClient
 
         return [
             'valid'             => !empty($response->valid),
-            'requestIdentifier' => isset($response->requestIdentifier) ? (string) $response->requestIdentifier : '',
+            'requestIdentifier' => static::cleanRequestId(isset($response->requestIdentifier) ? $response->requestIdentifier : ''),
             'name'              => static::cleanTraderString($name),
             'address'           => static::cleanTraderString($address),
+        ];
+    }
+
+    /**
+     * Result shape for a number VIES positively rejected.
+     *
+     * @param mixed $requestId Consultation ID of the rejecting check, if any.
+     *
+     * @return array
+     */
+    protected static function rejection($requestId)
+    {
+        return [
+            'valid'             => false,
+            'requestIdentifier' => static::cleanRequestId($requestId),
+            'name'              => '',
+            'address'           => '',
         ];
     }
 
@@ -293,10 +325,24 @@ class VatNumberViesClient
     }
 
     /**
+     * @param mixed $value
+     *
+     * @return string Consultation ID, bounded to the stored column width.
+     */
+    protected static function cleanRequestId($value)
+    {
+        if (!is_string($value)) {
+            return '';
+        }
+
+        return mb_substr(trim($value), 0, static::REQUEST_ID_MAX_LENGTH);
+    }
+
+    /**
      * VIES sometimes answers '---' for withheld trader data and uses
      * newlines in addresses. Normalize for single line database storage,
-     * and strip angle brackets so remote data can never trip the HTML
-     * validation on the database model or reach a page as markup.
+     * and strip angle brackets so remote data can never reach a page as
+     * markup.
      *
      * @param mixed $value
      *

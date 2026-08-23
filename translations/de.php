@@ -3,7 +3,6 @@
 global $_MODULE;
 $_MODULE = array();
 
-$_MODULE['<{vatnumber}prestashop>vatnumber_b83272c7487874249f2249bdbb3bacd7'] = '%d USt-IdNr. warten noch auf die VIES-Pruefung (akzeptiert, waehrend der Dienst nicht erreichbar war).';
 $_MODULE['<{vatnumber}prestashop>vatnumber_1ccfb12cb9310c4821de8bb46c6413c1'] = '%s ist KEINE gueltige USt-IdNr.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_e7161b32a16284042be3ec04eefd316a'] = '%s ist eine gueltige USt-IdNr.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_038b34b36ec9eaf5f96d11e17f208f1b'] = '-- Land waehlen --';
@@ -20,9 +19,7 @@ $_MODULE['<{vatnumber}prestashop>vatnumber_d55032733add57a402d67e096c0bbd38'] = 
 $_MODULE['<{vatnumber}prestashop>vatnumber_f557912d9b773f3b62ab61d7239e69ec'] = 'Kunden aus dem eigenen Land zahlen immer MwSt. Leerzeichen und Punkte in der Nummer sind kein Problem, griechische Nummern mit dem Praefix GR werden als EL behandelt, und nordirische Unternehmen (XI-Nummer, GB-Adresse) werden unterstuetzt.';
 $_MODULE['<{vatnumber}prestashop>howto_f557912d9b773f3b62ab61d7239e69ec'] = 'Kunden aus dem eigenen Land zahlen immer MwSt. Leerzeichen und Punkte in der Nummer sind kein Problem, griechische Nummern mit dem Praefix GR werden als EL behandelt, und nordirische Unternehmen (XI-Nummer, GB-Adresse) werden unterstuetzt.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_dbb3b1f95b0e769884b0c923bad3dc9f'] = 'Datum im Format JJJJ-MM-TT, oder leer, um alles zu pruefen. Nummern in der Warteschlange von Kunden ohne Adressaenderung und ohne Bestellung seit diesem Datum werden aus der Pruefwarteschlange entfernt, sofort beim Speichern und bei jedem geplanten Lauf. Nuetzlich nach dem Upgrade eines Shops mit jahrelangen alten Adressen. Entfernte Nummern werden einfach wieder live geprueft, falls ein solcher Kunde je zurueckkehrt.';
-$_MODULE['<{vatnumber}prestashop>vatnumber_b9f5c797ebbf55adccdd8539a65a0241'] = 'Deaktiviert';
 $_MODULE['<{vatnumber}prestashop>vatnumber_c3611ab7e05da6ec6a6d66098df71627'] = 'Jeder Lauf prueft %d Nummern. Um eine grosse Warteschlange schneller abzuarbeiten, haengen Sie &limit=%d an die URL an (das Maximum pro Lauf).';
-$_MODULE['<{vatnumber}prestashop>vatnumber_00d23a76e43b46dae9ec7aa9dcbebb32'] = 'Aktiviert';
 $_MODULE['<{vatnumber}prestashop>vatnumber_05895abf8f690cf55fa0c2f01711deaa'] = 'Aktiviert (Standard): Kunden zahlen weiter MwSt., bis VIES ihre Nummer bestaetigt hat. Deaktiviert: Kunden erhalten die USt-Befreiung sofort, auch solange ihre Nummer noch auf die Pruefung wartet. Aktiviert ist sicherer fuer Sie, deaktiviert ist kundenfreundlicher. Nur relevant, wenn die automatische Pruefung aktiv ist. Von VIES abgelehnte Nummern erhalten nie die Befreiung.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_b25c4046a0e5c918765d51e10d709113'] = 'Geben Sie die vollstaendige Nummer inklusive des zweistelligen Laenderpraefixes ein, zum Beispiel %s. Leerzeichen, Punkte und Bindestriche sind kein Problem. Verwenden Sie EL oder GR fuer Griechenland und XI fuer Nordirland.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_2b094aac9f12f2abd921781ec657b254'] = 'Erst nach erfolgreicher Pruefung befreien';
@@ -36,7 +33,6 @@ $_MODULE['<{vatnumber}prestashop>vatnumber_a320d57d1a95824ee2aaae041318dfe8'] = 
 $_MODULE['<{vatnumber}prestashop>vatnumber_510cd0a0423dfa1f6625d5a6d759eba4'] = 'Ungueltiges Praefix der USt-IdNr.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_f3ebffd526642b32c38f50c59f1940df'] = 'Ungueltige USt-IdNr.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_a33780d81d8562b28d64f6845d4872a2'] = 'Ungueltig, von VIES abgelehnt';
-$_MODULE['<{vatnumber}prestashop>vatnumber_ac2f1948d920772ec5c77ce30a63d347'] = 'Zuletzt geprueft:';
 $_MODULE['<{vatnumber}prestashop>vatnumber_829d3dea92182c823c5cc6e7ac04f815'] = 'Letzter Prueflauf: %s';
 $_MODULE['<{vatnumber}prestashop>vatnumber_a3ca6ea2e8305187403c445ea575b44f'] = 'Nie geprueft';
 $_MODULE['<{vatnumber}prestashop>vatnumber_6f4eefc51f052b0bf8f1725bccf59855'] = 'Keine USt-IdNr. warten auf Pruefung.';
@@ -54,10 +50,8 @@ $_MODULE['<{vatnumber}prestashop>vatnumber_d0d06807f70765c03c21234cbfdad6de'] = 
 $_MODULE['<{vatnumber}prestashop>vatnumber_1e9771852eaffc84bcc616d25f64795a'] = 'Einige Laender (zum Beispiel Deutschland) geben ueber VIES keinen Namen und keine Anschrift des Unternehmens frei. Die Nummer ist dennoch gueltig.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_6e1c537858e82d84375156336236db08'] = 'Die USt-IdNr. dieses Shops, inklusive Laenderpraefix. Wenn gesetzt, wird sie bei jeder VIES-Pruefung mitgesendet und VIES liefert eine Konsultations-ID zurueck: den formalen Nachweis der Pruefung, den die Steuerbehoerden verlangen. Leer lassen, um ohne Nachweis-IDs zu pruefen.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_bc2285c91c86dfb3ed91e6682a69b43b'] = 'Das Startdatum fuer die Pruefung muss ein gueltiges Datum sein (JJJJ-MM-TT) oder leer, um alle Nummern zu pruefen.';
-$_MODULE['<{vatnumber}prestashop>vatnumber_a70006cb65bca9a9aa42df479d37a472'] = 'Die Pruefaufgabe ist in den letzten %d Stunden nicht gelaufen. Nummern bleiben ungeprueft, bis sie laeuft. Richten Sie die untenstehende URL als geplante Aufgabe ein.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_2b1d586a3905df7dce992e1b92a011e5'] = 'Dieses Modul ergaenzt die Verarbeitung von USt-Befreiungen fuer verschiedene Steuergesetze.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_7c0e3094381fa63a9164ec9016df93f7'] = 'Diese Nummer wurde nie bei VIES geprueft.';
-$_MODULE['<{vatnumber}prestashop>vatnumber_4558e065e7ec5ce29f11cd6c70ff221f'] = 'Diese Nummer wurde akzeptiert, waehrend VIES nicht erreichbar war. Die geplante Aufgabe prueft sie noch; Sie koennen sie auch jetzt mit dem Pruefwerkzeug kontrollieren.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_cdaa77ebb17c78904c4535d52c6e354f'] = 'Dies nutzt VIES, den offiziellen Webdienst der Europaeischen Gemeinschaft. Bestaetigte Nummern werden lokal zwischengespeichert, wiederholte Pruefungen brauchen also keinen Netzwerkzugriff. Bei Ausfaellen des Webdienstes (die kommen haeufiger vor) werden USt-IdNrn. vorlaeufig akzeptiert, um den Kunden nicht zu stoeren, und von der unten stehenden geplanten Aufgabe automatisch nachgeprueft. Solche Ereignisse werden protokolliert; moechten Sie zusaetzlich E-Mails dazu erhalten, setzen Sie \'Minimaler Schweregrad\' unter Erweiterte Einstellungen -> Log auf 3 oder niedriger.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_0ecbf4ca9d543f1c42325db8b334192e'] = 'Um wartende Nummern zu pruefen und alte automatisch nachzupruefen, rufen Sie diese URL aus einer geplanten Aufgabe auf (zum Beispiel stuendlich, ueber das Cronjobs-Modul oder die Crontab Ihres Servers):';
 $_MODULE['<{vatnumber}prestashop>vatnumber_087e07668ea45692678e1d5f809b2f24'] = 'Anschrift des Unternehmens';
@@ -76,7 +70,6 @@ $_MODULE['<{vatnumber}prestashop>vatnumber_c1f073086b973a6dd2cec9b51cc5aa32'] = 
 $_MODULE['<{vatnumber}prestashop>vatnumber_ac955836c7098c2b4142ca183731ba9f'] = 'USt-IdNr. angegeben, aber kein Firmenname.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_dac4ecf8f5e43c798779d95bafaa6de3'] = 'Auf diese Bestellung wurde MwSt. berechnet.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_acfb5582e933170a650373786cdb3658'] = 'VIES-Konsultations-ID';
-$_MODULE['<{vatnumber}prestashop>vatnumber_20c450660dd69b7f249b6a5baf95c2cd'] = 'VIES-Konsultations-ID (Nachweis):';
 $_MODULE['<{vatnumber}prestashop>vatnumber_d6dd3f797596413b86bb4af2e98b9a97'] = 'VIES war nicht erreichbar (%s). Versuchen Sie es spaeter erneut.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_ad180f79b1647e0104abaf52657a6d02'] = 'VIES hat diese Nummer abgelehnt. War diese Bestellung befreit, pruefen Sie sie und berechnen Sie die MwSt. bei Bedarf neu.';
 $_MODULE['<{vatnumber}prestashop>vatnumber_dd85c2d9cb41dc1fe9316c361c969f92'] = 'Gueltig, von VIES bestaetigt';
@@ -90,7 +83,6 @@ $_MODULE['<{vatnumber}prestashop>howto_93cf0eabb9b1ecee521688c482c59d16'] = 'Ein
 $_MODULE['<{vatnumber}prestashop>howto_26438dea77da6d030d95f47b257d1f0d'] = 'Erweiterte Einstellungen > Log';
 $_MODULE['<{vatnumber}prestashop>howto_0ca88066c014448b3922d433bfcbda98'] = 'Empfehlung';
 $_MODULE['<{vatnumber}prestashop>howto_1106274eac265f8740efd310e5d03688'] = 'Immer MwSt. berechnen fuer Kunden aus';
-$_MODULE['<{vatnumber}prestashop>howto_4e5454a996c3c1c47570d11a3ddb280f'] = 'Unten zeigt das Panel "USt-Befreiung", ob MwSt. berechnet wurde, die fuer diese Bestellung verwendete Nummer mit farbigem Status (gruen = von VIES bestaetigt, rot = abgelehnt, orange = wartet auf Pruefung, grau = nie geprueft), das Datum der letzten Pruefung und die Konsultations-ID als Nachweis. Bei rot erscheint eine Warnung, die Bestellung zu pruefen und die MwSt. bei Bedarf neu zu berechnen.';
 $_MODULE['<{vatnumber}prestashop>howto_9aa21a00421bef476b0ce7c92a0b88d8'] = 'Einen Kunden im Backoffice pruefen';
 $_MODULE['<{vatnumber}prestashop>howto_03a6d8afdd380f6d7cdb75fbaa96c0d7'] = 'Kunden > Adressen';
 $_MODULE['<{vatnumber}prestashop>howto_e5d0dc3b58ccc077b9248372b856ef2a'] = 'Kunden zahlen weiter MwSt., bis VIES ihre Nummer bestaetigt hat.';
@@ -133,3 +125,19 @@ $_MODULE['<{vatnumber}prestashop>howto_b250599882857b2d9f941a79ec818574'] = 'ste
 $_MODULE['<{vatnumber}prestashop>howto_4ed33802af52eaf51a60d37e26163e34'] = 'prueft bestaetigte Nummern alle 180 Tage erneut, da USt-Registrierungen ablaufen koennen;';
 $_MODULE['<{vatnumber}prestashop>howto_88f72c855fd23ae9a85a175e43bae93b'] = 'die USt-IdNr. steht immer an der Kundenadresse, nicht auf der Kundenkarte. Oeffnen Sie sie unter';
 $_MODULE['<{vatnumber}prestashop>howto_8107e29e28d843ae56862c0f402ea275'] = 'prueft wartende Nummern (%d pro Lauf; haengen Sie &limit=%d an die URL an, um eine grosse Warteschlange schneller abzuarbeiten);';
+$_MODULE['<{vatnumber}prestashop>vatnumber_969107da519aed5cea02c36533737d8f'] = '%d USt-IdNr. warten auf die VIES-Pruefung.';
+$_MODULE['<{vatnumber}prestashop>vatnumber_6068f968dcdedebc715e35b10992d228'] = 'Aktueller Status seit:';
+$_MODULE['<{vatnumber}prestashop>vatnumber_7e52e47a85b1cb31ceb2962a966c8824'] = 'Zuletzt von VIES als gueltig bestaetigt:';
+$_MODULE['<{vatnumber}prestashop>vatnumber_2d52769f382397dc70ae15d21a5f7ddf'] = 'Konsultations-ID (Nachweis):';
+$_MODULE['<{vatnumber}prestashop>vatnumber_a6266c70ba31b31fba1fdd64f2112b00'] = 'Es ist kein Cron-Token gespeichert; die Cron-URL wuerde abgelehnt. Setzen Sie das Modul zurueck, um eines zu erzeugen.';
+$_MODULE['<{vatnumber}prestashop>vatnumber_ef7d96ac1328615ad5fc31b85cdc58a4'] = 'Einstellungen gespeichert. Das Startdatum wird beim naechsten geplanten Lauf angewendet.';
+$_MODULE['<{vatnumber}prestashop>vatnumber_b4e343e9694d4799435e5031f749a73e'] = 'Der strikte Modus ist aus: Nummern, die noch auf die Pruefung warten, erhalten die Befreiung bereits. Schalten Sie ihn ein, um MwSt. zu berechnen, bis VIES eine Nummer bestaetigt hat.';
+$_MODULE['<{vatnumber}prestashop>vatnumber_89d563fc87e86cda31cedd2b783fd8f9'] = 'Die Pruefaufgabe ist in den letzten %d Stunden nicht gelaufen. Neue Nummern bleiben ungeprueft und bestaetigte Nummern werden nicht erneut geprueft, bis sie laeuft. Richten Sie die untenstehende URL als geplante Aufgabe ein.';
+$_MODULE['<{vatnumber}prestashop>vatnumber_32fc1c3ccc88e26aae40a18f6013d390'] = 'Diese Nummer wartet noch auf die Pruefung. Die geplante Aufgabe prueft sie; Sie koennen sie auch jetzt mit dem Pruefwerkzeug kontrollieren.';
+$_MODULE['<{vatnumber}prestashop>vatnumber_feac8570563dec1b3f879b38c8745aee'] = 'Diese Bestellung wurde mit der Kontrollkaestchen-Befreiung der Modulversionen vor 2.7.4 aufgegeben; es gibt keine USt-IdNr. zu pruefen.';
+$_MODULE['<{vatnumber}prestashop>vatnumber_eb1d6382de5b89b2020d1d76699e16d8'] = 'Dies zeigt den aktuellen Zustand der Nummer. Bestellungen behalten ihre eigenen MwSt.-Betraege; eine spaetere Ablehnung aendert keine bereits ausgestellte Rechnung.';
+$_MODULE['<{vatnumber}prestashop>vatnumber_27c57853a59424005a7d2f64a4b331a5'] = 'In kurzer Zeit wurden zu viele verschiedene USt-IdNrn. eingegeben. Bitte versuchen Sie es spaeter erneut.';
+$_MODULE['<{vatnumber}prestashop>howto_aa7e60ba69afed4f17b17b3e6df610df'] = 'Ein Kunde, der innerhalb einer Stunde mehr als eine Handvoll verschiedener USt-IdNrn. eingibt, wird gebeten, es spaeter erneut zu versuchen; das ist ein Skript, kein Tippfehler.';
+$_MODULE['<{vatnumber}prestashop>howto_b1c6b6361b23d61bc584cbd2ecb3dcef'] = 'Unten zeigt das Panel "USt-Befreiung", ob MwSt. berechnet wurde, die fuer diese Bestellung verwendete Nummer mit farbigem Status (gruen = von VIES bestaetigt, rot = abgelehnt, orange = wartet auf Pruefung, grau = nie geprueft), wann die Nummer zuletzt als gueltig bestaetigt wurde und die Konsultations-ID dieser Bestaetigung als Nachweis. Bei rot erscheint eine Warnung, die Bestellung zu pruefen und die MwSt. bei Bedarf neu zu berechnen.';
+$_MODULE['<{vatnumber}prestashop>howto_9f2322c2c4278691231151c4b3cd9f0d'] = 'Behalten Sie "Firma" im Adressformat der EU-Laender (Lokalisierung > Laender): eine USt-IdNr. ohne Firmenname wird abgelehnt. Fehlt das Feld, wird der Firmenname des Kundenkontos verwendet.';
+$_MODULE['<{vatnumber}prestashop>howto_749fe89784b21af5faddceffeb989bb2'] = 'Mit "Erst nach erfolgreicher Pruefung befreien" zahlt ein Kunde, dessen Nummer noch nicht bestaetigt werden konnte, MwSt. auf diese Bestellung, ohne den Grund zu erfahren. Erwaehnen Sie das in Ihren AGB oder erstatten Sie die MwSt., sobald die Nummer bestaetigt ist.';

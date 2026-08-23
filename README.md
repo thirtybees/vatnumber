@@ -94,8 +94,27 @@ on customer addresses are queued for background verification, so enabling
 the strict mode does not suddenly withdraw the exemption from existing
 customers before their numbers were ever checked.
 
-Back office address edits by employees are validated the same way as
-customer edits since 2.7.0.
+Back office address edits by employees are checked the same way since
+2.7.0, but a failed check warns the employee instead of blocking the save;
+the exemption is refused regardless. CSV imports are not checked live; the
+cron queues and verifies imported numbers afterwards.
+
+## Known limitations
+
+- Uninstalling drops the check table, including every VIES consultation ID.
+  Export or back up the table first if the proof is still needed.
+- In strict mode a customer whose number is not confirmed yet pays VAT on
+  that order and is not told why by the module; mention it in your terms or
+  refund afterwards.
+- The bundled thirty bees theme only posts the VAT number field when it is
+  visible (company filled in, EU country selected), and one of its templates
+  uses a different DOM id for the field. A guest who changes country or
+  clears the company can lose the number they typed; that is theme
+  behaviour, reported upstream.
+- A customer entering more than a handful of different VAT numbers within
+  an hour is asked to try again later, to keep scripts from abusing VIES.
+- Settings are per shop in multistore; the check table, the cron token, the
+  cron state and the VIES circuit breaker are shared by all shops.
 
 ## Settings overview
 

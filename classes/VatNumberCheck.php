@@ -23,9 +23,10 @@ if (!defined('_TB_VERSION_')) {
 
 /**
  * Local record of a VAT number check. One row per VAT number, holding the
- * latest known state. This is the local cache that keeps the shop working
- * when VIES is down, and the audit trail (consultation ID) that proves to
- * the tax authorities that a number was verified.
+ * latest known state plus the last confirmed verification. This is the
+ * local cache that keeps the shop working when VIES is down, and the audit
+ * trail (consultation IDs) that proves to the tax authorities that a number
+ * was verified.
  */
 class VatNumberCheck extends ObjectModel
 {
@@ -55,6 +56,9 @@ class VatNumberCheck extends ObjectModel
      */
     const PURGE_DAYS = 90;
 
+    /** Literals per IN () list, keeps statements well below max_allowed_packet. */
+    const SQL_CHUNK_SIZE = 1000;
+
     /** @var string Full normalized VAT number including country prefix. */
     public $vat_number;
 
@@ -67,7 +71,7 @@ class VatNumberCheck extends ObjectModel
     /** @var string One of the SOURCE_* constants. */
     public $source;
 
-    /** @var string VIES consultation ID, proof that the check happened. */
+    /** @var string VIES consultation ID of the latest check, if any. */
     public $vies_request_id;
 
     /** @var string Trader name as registered with the tax authorities. */
@@ -78,6 +82,19 @@ class VatNumberCheck extends ObjectModel
 
     /** @var int Last address this number was seen on, 0 when unknown. */
     public $id_address;
+
+    /** @var int Customer who last submitted this number, 0 when unknown. */
+    public $id_customer;
+
+    /**
+     * @var string Consultation ID of the last check that confirmed the
+     *             number valid. Kept when a later check rejects it, so the
+     *             proof for orders placed in between survives.
+     */
+    public $valid_request_id;
+
+    /** @var string|null Date of the last check that confirmed the number valid. */
+    public $valid_date;
 
     /** @var string */
     public $date_add;
@@ -95,16 +112,19 @@ class VatNumberCheck extends ObjectModel
         'table'   => 'vatnumber_check',
         'primary' => 'id_vatnumber_check',
         'fields'  => [
-            'vat_number'      => ['type' => self::TYPE_STRING, 'validate' => 'isGenericName', 'required' => true, 'size' => 32],
-            'country_code'    => ['type' => self::TYPE_STRING, 'validate' => 'isGenericName', 'required' => true, 'size' => 2],
-            'status'          => ['type' => self::TYPE_STRING, 'validate' => 'isGenericName', 'required' => true, 'size' => 16],
-            'source'          => ['type' => self::TYPE_STRING, 'validate' => 'isGenericName', 'required' => true, 'size' => 16],
-            'vies_request_id' => ['type' => self::TYPE_STRING, 'validate' => 'isGenericName', 'size' => 64],
-            'trader_name'     => ['type' => self::TYPE_STRING, 'validate' => 'isCleanHtml', 'size' => 255],
-            'trader_address'  => ['type' => self::TYPE_STRING, 'validate' => 'isCleanHtml', 'size' => 255],
-            'id_address'      => ['type' => self::TYPE_INT, 'validate' => 'isUnsignedId'],
-            'date_add'        => ['type' => self::TYPE_DATE, 'validate' => 'isDate'],
-            'date_upd'        => ['type' => self::TYPE_DATE, 'validate' => 'isDate'],
+            'vat_number'       => ['type' => self::TYPE_STRING, 'validate' => 'isGenericName', 'required' => true, 'size' => 32],
+            'country_code'     => ['type' => self::TYPE_STRING, 'validate' => 'isGenericName', 'required' => true, 'size' => 2],
+            'status'           => ['type' => self::TYPE_STRING, 'validate' => 'isGenericName', 'required' => true, 'size' => 16],
+            'source'           => ['type' => self::TYPE_STRING, 'validate' => 'isGenericName', 'required' => true, 'size' => 16],
+            'vies_request_id'  => ['type' => self::TYPE_STRING, 'validate' => 'isGenericName', 'size' => 64],
+            'trader_name'      => ['type' => self::TYPE_STRING, 'validate' => 'isCleanHtml', 'size' => 255],
+            'trader_address'   => ['type' => self::TYPE_STRING, 'validate' => 'isCleanHtml', 'size' => 255],
+            'id_address'       => ['type' => self::TYPE_INT, 'validate' => 'isUnsignedId'],
+            'id_customer'      => ['type' => self::TYPE_INT, 'validate' => 'isUnsignedId'],
+            'valid_request_id' => ['type' => self::TYPE_STRING, 'validate' => 'isGenericName', 'size' => 64],
+            'valid_date'       => ['type' => self::TYPE_DATE, 'validate' => 'isDate', 'allow_null' => true],
+            'date_add'         => ['type' => self::TYPE_DATE, 'validate' => 'isDate'],
+            'date_upd'         => ['type' => self::TYPE_DATE, 'validate' => 'isDate'],
         ],
     ];
 
@@ -113,7 +133,8 @@ class VatNumberCheck extends ObjectModel
      * everything that is not a letter or digit (spaces, dots, dashes), and
      * translate to the canonical VIES form: the common 'GR' spelling for
      * Greece becomes 'EL', and 9 digit legacy Belgian numbers get their
-     * leading zero restored.
+     * leading zero restored. The '+' and '*' of the legacy Irish format are
+     * part of the number and are kept.
      *
      * @param string $vatNumber
      *
@@ -121,15 +142,28 @@ class VatNumberCheck extends ObjectModel
      */
     public static function normalize($vatNumber)
     {
-        $normalized = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', (string) $vatNumber));
+        $normalized = strtoupper(preg_replace('/[^A-Za-z0-9+*]/', '', (string) $vatNumber));
         if (substr($normalized, 0, 2) === 'GR') {
             $normalized = 'EL'.substr($normalized, 2);
         }
-        if (substr($normalized, 0, 2) === 'BE' && preg_match('/^BE[0-9]{9}$/', $normalized)) {
+        if (preg_match('/^BE[0-9]{9}$/', $normalized)) {
             $normalized = 'BE0'.substr($normalized, 2);
         }
 
         return $normalized;
+    }
+
+    /**
+     * True when the value is the legacy checkbox sentinel of versions before
+     * 2.7.4, in any spelling or spacing a customer might type.
+     *
+     * @param string $vatNumber Raw or normalized value.
+     *
+     * @return bool
+     */
+    public static function isLegacySentinel($vatNumber)
+    {
+        return static::normalize($vatNumber) === static::normalize(VatNumber::VAT_EXEMPTION_FLAG);
     }
 
     /**
@@ -145,20 +179,18 @@ class VatNumberCheck extends ObjectModel
      */
     public static function findByNumber($normalizedNumber)
     {
-        $id = (int) Db::getInstance()->getValue(
+        $row = Db::getInstance()->getRow(
             (new DbQuery())
-                ->select('id_vatnumber_check')
+                ->select('*')
                 ->from('vatnumber_check')
                 ->where('vat_number = \''.pSQL($normalizedNumber).'\'')
         );
-        if (!$id) {
+        if (!$row) {
             return null;
         }
 
-        $check = new VatNumberCheck($id);
-        if (!Validate::isLoadedObject($check)) {
-            throw new PrestaShopException('Failed to load VatNumberCheck '.$id);
-        }
+        $check = new VatNumberCheck();
+        $check->hydrate($row);
 
         return $check;
     }
@@ -178,7 +210,7 @@ class VatNumberCheck extends ObjectModel
     public static function getStatus($normalizedNumber)
     {
         if (!array_key_exists($normalizedNumber, static::$statusCache)) {
-            $status = Db::getInstance()->getValue(
+            $status = Db::getInstance(_PS_USE_SQL_SLAVE_)->getValue(
                 (new DbQuery())
                     ->select('status')
                     ->from('vatnumber_check')
@@ -193,6 +225,10 @@ class VatNumberCheck extends ObjectModel
     /**
      * Create or update the record for a VAT number with a fresh result.
      *
+     * A 'valid' result also refreshes the kept proof (valid_request_id,
+     * valid_date); an 'invalid' result leaves that proof alone, so orders
+     * placed while the number was valid keep their evidence.
+     *
      * @param string $normalizedNumber Normalized VAT number with prefix.
      * @param string $countryCode VIES country code.
      * @param string $status One of the STATUS_* constants.
@@ -201,34 +237,81 @@ class VatNumberCheck extends ObjectModel
      * @param string $traderName
      * @param string $traderAddress
      * @param int $idAddress Address the number was seen on, if known.
+     * @param int $idCustomer Customer who submitted it, if known.
      *
      * @return VatNumberCheck
      *
      * @throws PrestaShopException
      */
-    public static function recordResult($normalizedNumber, $countryCode, $status, $source, $requestId = '', $traderName = '', $traderAddress = '', $idAddress = 0)
+    public static function recordResult($normalizedNumber, $countryCode, $status, $source, $requestId = '', $traderName = '', $traderAddress = '', $idAddress = 0, $idCustomer = 0)
     {
         $check = static::findByNumber($normalizedNumber);
         if (!$check) {
             $check = new VatNumberCheck();
             $check->vat_number = $normalizedNumber;
             $check->id_address = 0;
+            $check->id_customer = 0;
+            $check->valid_request_id = '';
+            $check->valid_date = null;
         }
-        $check->country_code = strtoupper((string) $countryCode);
-        $check->status = $status;
-        $check->source = $source;
-        $check->vies_request_id = (string) $requestId;
-        $check->trader_name = (string) $traderName;
-        $check->trader_address = (string) $traderAddress;
-        if ((int) $idAddress) {
-            $check->id_address = (int) $idAddress;
+        static::applyResult($check, $countryCode, $status, $source, $requestId, $traderName, $traderAddress, $idAddress, $idCustomer);
+
+        try {
+            $saved = $check->save();
+        } catch (PrestaShopDatabaseException $e) {
+            // Two flows checked the same new number at once and both tried
+            // to INSERT against the unique key. Reload and apply as update.
+            $existing = static::findByNumber($normalizedNumber);
+            if (!$existing) {
+                throw $e;
+            }
+            $check = $existing;
+            static::applyResult($check, $countryCode, $status, $source, $requestId, $traderName, $traderAddress, $idAddress, $idCustomer);
+            $saved = $check->save();
         }
-        if (!$check->save()) {
+        if (!$saved) {
             throw new PrestaShopException('Failed to save VAT number check result for '.$normalizedNumber);
         }
         static::$statusCache[$normalizedNumber] = $status;
 
         return $check;
+    }
+
+    /**
+     * Copy a check result onto a record without saving.
+     *
+     * @param VatNumberCheck $check
+     * @param string $countryCode
+     * @param string $status
+     * @param string $source
+     * @param string $requestId
+     * @param string $traderName
+     * @param string $traderAddress
+     * @param int $idAddress
+     * @param int $idCustomer
+     *
+     * @return void
+     */
+    protected static function applyResult($check, $countryCode, $status, $source, $requestId, $traderName, $traderAddress, $idAddress, $idCustomer)
+    {
+        $check->country_code = strtoupper((string) $countryCode);
+        $check->status = $status;
+        $check->source = $source;
+        $check->vies_request_id = mb_substr((string) $requestId, 0, 64);
+        // VIES trader data is foreign input; a value the model's HTML check
+        // would refuse must never make a successful VIES answer fail.
+        $check->trader_name = Validate::isCleanHtml($traderName) ? (string) $traderName : '';
+        $check->trader_address = Validate::isCleanHtml($traderAddress) ? (string) $traderAddress : '';
+        if ((int) $idAddress) {
+            $check->id_address = (int) $idAddress;
+        }
+        if ((int) $idCustomer) {
+            $check->id_customer = (int) $idCustomer;
+        }
+        if ($status === static::STATUS_VALID && $source === static::SOURCE_VIES) {
+            $check->valid_request_id = mb_substr((string) $requestId, 0, 64);
+            $check->valid_date = date('Y-m-d H:i:s');
+        }
     }
 
     /**
@@ -259,8 +342,34 @@ class VatNumberCheck extends ObjectModel
     }
 
     /**
-     * Numbers that still await VIES confirmation (accepted while the service
-     * was down).
+     * How many distinct numbers a customer had checked in the last period.
+     * Used to stop one customer (or a script on their account) from
+     * triggering unbounded VIES requests with made up numbers.
+     *
+     * @param int $idCustomer
+     * @param int $seconds Look-back window.
+     *
+     * @return int
+     *
+     * @throws PrestaShopException
+     */
+    public static function countRecentByCustomer($idCustomer, $seconds)
+    {
+        if (!(int) $idCustomer) {
+            return 0;
+        }
+
+        return (int) Db::getInstance()->getValue(
+            (new DbQuery())
+                ->select('COUNT(*)')
+                ->from('vatnumber_check')
+                ->where('id_customer = '.(int) $idCustomer)
+                ->where('date_add >= \''.pSQL(date('Y-m-d H:i:s', time() - (int) $seconds)).'\'')
+        );
+    }
+
+    /**
+     * Numbers that still await VIES confirmation.
      *
      * @param int $limit
      *
@@ -270,7 +379,7 @@ class VatNumberCheck extends ObjectModel
      */
     public static function getPending($limit)
     {
-        $result = Db::getInstance(_PS_USE_SQL_SLAVE_)->executeS(
+        $result = Db::getInstance()->executeS(
             (new DbQuery())
                 ->select('*')
                 ->from('vatnumber_check')
@@ -278,8 +387,11 @@ class VatNumberCheck extends ObjectModel
                 ->orderBy('date_upd ASC')
                 ->limit(max(1, (int) $limit))
         );
+        if ($result === false) {
+            throw new PrestaShopException('Failed to read the VAT number queue: '.Db::getInstance()->getMsgError());
+        }
 
-        return is_array($result) ? $result : [];
+        return $result;
     }
 
     /**
@@ -291,7 +403,7 @@ class VatNumberCheck extends ObjectModel
      */
     public static function countPending()
     {
-        return (int) Db::getInstance(_PS_USE_SQL_SLAVE_)->getValue(
+        return (int) Db::getInstance()->getValue(
             (new DbQuery())
                 ->select('COUNT(*)')
                 ->from('vatnumber_check')
@@ -311,7 +423,7 @@ class VatNumberCheck extends ObjectModel
      */
     public static function getStale($limit)
     {
-        $result = Db::getInstance(_PS_USE_SQL_SLAVE_)->executeS(
+        $result = Db::getInstance()->executeS(
             (new DbQuery())
                 ->select('*')
                 ->from('vatnumber_check')
@@ -320,13 +432,16 @@ class VatNumberCheck extends ObjectModel
                 ->orderBy('date_upd ASC')
                 ->limit(max(1, (int) $limit))
         );
+        if ($result === false) {
+            throw new PrestaShopException('Failed to read stale VAT numbers: '.Db::getInstance()->getMsgError());
+        }
 
-        return is_array($result) ? $result : [];
+        return $result;
     }
 
     /**
      * Move a row to the back of the verification queue by refreshing its
-     * date_upd. Used when VIES could not answer for this specific number,
+     * date_upd. Used when a check of this specific row could not complete,
      * so it does not block the queue head forever.
      *
      * @param int $idVatNumberCheck
@@ -342,57 +457,8 @@ class VatNumberCheck extends ObjectModel
             'id_vatnumber_check = '.(int) $idVatNumberCheck
         );
         if (!$ok) {
-            throw new PrestaShopException('Failed to touch VatNumberCheck '.(int) $idVatNumberCheck);
+            throw new PrestaShopException('Failed to touch VatNumberCheck '.(int) $idVatNumberCheck.': '.Db::getInstance()->getMsgError());
         }
-    }
-
-    /**
-     * Delete old 'unverified' and 'invalid' rows that no customer address
-     * references anymore, e.g. leftovers of corrected typos or of random
-     * numbers submitted by bots. Keeps the table bounded and keeps the cron
-     * from re-checking numbers nobody uses.
-     *
-     * The set of live numbers is collected in PHP and normalized with
-     * normalize(), the single source of truth. Reimplementing the
-     * normalization in SQL would silently diverge (GR to EL mapping,
-     * Belgian zero padding) and purge rows that are still in use.
-     *
-     * 'valid' rows are never purged: they carry the consultation ID that
-     * proves a past verification.
-     *
-     * @return int Number of deleted rows.
-     *
-     * @throws PrestaShopException
-     */
-    public static function purgeOrphaned()
-    {
-        $rows = Db::getInstance()->executeS(
-            (new DbQuery())
-                ->select('DISTINCT vat_number')
-                ->from('address')
-                ->where('deleted = 0')
-                ->where('vat_number != \'\'')
-        );
-        $live = [];
-        foreach (is_array($rows) ? $rows : [] as $row) {
-            $normalized = static::normalize($row['vat_number']);
-            if ($normalized !== '') {
-                $live[] = '\''.pSQL($normalized).'\'';
-            }
-        }
-
-        $cutoff = date('Y-m-d H:i:s', strtotime('-'.static::PURGE_DAYS.' days'));
-        $sql = 'DELETE FROM `'._DB_PREFIX_.'vatnumber_check`'
-            .' WHERE status IN (\''.pSQL(static::STATUS_UNVERIFIED).'\', \''.pSQL(static::STATUS_INVALID).'\')'
-            .' AND date_upd < \''.pSQL($cutoff).'\'';
-        if ($live) {
-            $sql .= ' AND vat_number NOT IN ('.implode(', ', $live).')';
-        }
-        if (!Db::getInstance()->execute($sql)) {
-            throw new PrestaShopException('Failed to purge orphaned VAT number checks: '.Db::getInstance()->getMsgError());
-        }
-
-        return (int) Db::getInstance()->Affected_Rows();
     }
 
     /**
@@ -401,32 +467,52 @@ class VatNumberCheck extends ObjectModel
      * created or changed since then, or its customer placed an order since
      * then. Without a date, all addresses.
      *
+     * Soft deleted addresses are included on request: orders keep pointing
+     * at their historical address rows, and the invoice PDF re-evaluates
+     * the exemption through those rows, so their numbers count as "in use"
+     * for housekeeping purposes.
+     *
+     * Normalization happens here in PHP with normalize(), the single source
+     * of truth. Reimplementing it in SQL would silently diverge (GR to EL
+     * mapping, Belgian zero padding).
+     *
      * @param string|null $sinceDate Date in Y-m-d format, or null for all.
+     * @param bool $includeDeleted Also look at soft deleted addresses.
      *
      * @return string[] Unique normalized numbers.
      *
-     * @throws PrestaShopException
+     * @throws PrestaShopException when the address table cannot be read;
+     *                             callers must never treat that as "no
+     *                             numbers".
      */
-    public static function getAddressNumbers($sinceDate = null)
+    public static function getAddressNumbers($sinceDate = null, $includeDeleted = false)
     {
-        $query = (new DbQuery())
-            ->select('DISTINCT a.vat_number')
-            ->from('address', 'a')
-            ->where('a.deleted = 0')
-            ->where('a.vat_number != \'\'');
-        if ($sinceDate !== null && $sinceDate !== '') {
-            $query->where(
-                'a.date_upd >= \''.pSQL($sinceDate).'\''
-                .' OR a.id_customer IN ('
-                .'SELECT o.id_customer FROM `'._DB_PREFIX_.'orders` o WHERE o.date_add >= \''.pSQL($sinceDate).'\''
-                .')'
-            );
+        $base = 'SELECT DISTINCT a.vat_number FROM `'._DB_PREFIX_.'address` a WHERE a.vat_number != \'\'';
+        if (!$includeDeleted) {
+            $base .= ' AND a.deleted = 0';
         }
-        $rows = Db::getInstance()->executeS($query);
+        if ($sinceDate !== null && $sinceDate !== '') {
+            // Two indexed drives joined by UNION instead of one OR with a
+            // subquery: the OR form forces a full scan with a correlated
+            // probe per address row.
+            $sql = $base.' AND a.date_upd >= \''.pSQL($sinceDate).'\''
+                .' UNION '
+                .'SELECT DISTINCT a.vat_number FROM `'._DB_PREFIX_.'orders` o'
+                .' INNER JOIN `'._DB_PREFIX_.'address` a ON a.id_customer = o.id_customer'
+                .' WHERE o.date_add >= \''.pSQL($sinceDate).'\' AND a.vat_number != \'\''
+                .($includeDeleted ? '' : ' AND a.deleted = 0');
+        } else {
+            $sql = $base;
+        }
+        $rows = Db::getInstance()->executeS($sql);
+        if ($rows === false) {
+            throw new PrestaShopException('Failed to read VAT numbers from the address table: '.Db::getInstance()->getMsgError());
+        }
+
         $numbers = [];
-        foreach (is_array($rows) ? $rows : [] as $row) {
+        foreach ($rows as $row) {
             $normalized = static::normalize($row['vat_number']);
-            if ($normalized !== '' && $normalized !== strtoupper(VatNumber::VAT_EXEMPTION_FLAG)) {
+            if ($normalized !== '' && !static::isLegacySentinel($normalized)) {
                 $numbers[$normalized] = true;
             }
         }
@@ -435,51 +521,45 @@ class VatNumberCheck extends ObjectModel
     }
 
     /**
-     * Queue VAT numbers that exist on customer addresses but have no check
-     * record yet, so the cron verifies them. This is what makes the queue
-     * self healing: numbers stored while checking was off, imported
-     * addresses, or anything that slipped past the save-time check all get
-     * picked up eventually.
+     * Delete old 'unverified' and 'invalid' rows that no customer address
+     * references anymore, e.g. leftovers of corrected typos or of random
+     * numbers submitted by bots. Keeps the table bounded and keeps the cron
+     * from re-checking numbers nobody uses.
      *
-     * @param string|null $sinceDate Only addresses active since this date,
-     *                               null for all.
-     * @param int $limit Maximum numbers to queue in one call.
+     * 'valid' rows are never purged: they carry the consultation ID that
+     * proves a past verification.
      *
-     * @return int Number of rows created.
+     * @param string[] $liveNumbers Normalized numbers currently on any
+     *                              address (including soft deleted ones),
+     *                              from getAddressNumbers(null, true).
+     *
+     * @return int Number of deleted rows.
      *
      * @throws PrestaShopException
      */
-    public static function queueMissing($sinceDate, $limit)
+    public static function purgeOrphaned(array $liveNumbers)
     {
-        $numbers = static::getAddressNumbers($sinceDate);
-        if (!$numbers) {
-            return 0;
-        }
-        $quoted = array_map(function ($n) { return '\''.pSQL($n).'\''; }, $numbers);
-        $rows = Db::getInstance()->executeS(
+        $cutoff = date('Y-m-d H:i:s', strtotime('-'.static::PURGE_DAYS.' days'));
+        $candidates = Db::getInstance()->executeS(
             (new DbQuery())
-                ->select('vat_number')
+                ->select('id_vatnumber_check, vat_number')
                 ->from('vatnumber_check')
-                ->where('vat_number IN ('.implode(', ', $quoted).')')
+                ->where('status IN (\''.pSQL(static::STATUS_UNVERIFIED).'\', \''.pSQL(static::STATUS_INVALID).'\')')
+                ->where('date_upd < \''.pSQL($cutoff).'\'')
         );
-        $known = [];
-        foreach (is_array($rows) ? $rows : [] as $row) {
-            $known[$row['vat_number']] = true;
+        if ($candidates === false) {
+            throw new PrestaShopException('Failed to read purge candidates: '.Db::getInstance()->getMsgError());
         }
 
-        $created = 0;
-        foreach ($numbers as $normalized) {
-            if (isset($known[$normalized])) {
-                continue;
+        $live = array_fill_keys($liveNumbers, true);
+        $ids = [];
+        foreach ($candidates as $row) {
+            if (!isset($live[$row['vat_number']])) {
+                $ids[] = (int) $row['id_vatnumber_check'];
             }
-            if ($created >= (int) $limit) {
-                break;
-            }
-            static::recordResult($normalized, substr($normalized, 0, 2), static::STATUS_UNVERIFIED, static::SOURCE_FORMAT);
-            $created++;
         }
 
-        return $created;
+        return static::deleteByIds($ids);
     }
 
     /**
@@ -492,26 +572,142 @@ class VatNumberCheck extends ObjectModel
      * and if a dormant customer returns and saves their address, the number
      * is simply checked live again at that moment.
      *
-     * @param string $date Date in Y-m-d format.
+     * @param string[] $activeNumbers Normalized numbers of addresses active
+     *                                since the start date, from
+     *                                getAddressNumbers($date).
      *
      * @return int Number of dropped rows.
      *
      * @throws PrestaShopException
      */
-    public static function removeInactiveUnverified($date)
+    public static function removeInactiveUnverified(array $activeNumbers)
     {
-        $active = array_map(function ($n) { return '\''.pSQL($n).'\''; }, static::getAddressNumbers($date));
-        $sql = 'DELETE FROM `'._DB_PREFIX_.'vatnumber_check`'
-            .' WHERE status = \''.pSQL(static::STATUS_UNVERIFIED).'\''
-            .' AND source = \''.pSQL(static::SOURCE_FORMAT).'\'';
-        if ($active) {
-            $sql .= ' AND vat_number NOT IN ('.implode(', ', $active).')';
+        $candidates = Db::getInstance()->executeS(
+            (new DbQuery())
+                ->select('id_vatnumber_check, vat_number')
+                ->from('vatnumber_check')
+                ->where('status = \''.pSQL(static::STATUS_UNVERIFIED).'\'')
+                ->where('source = \''.pSQL(static::SOURCE_FORMAT).'\'')
+        );
+        if ($candidates === false) {
+            throw new PrestaShopException('Failed to read the verification queue: '.Db::getInstance()->getMsgError());
         }
-        if (!Db::getInstance()->execute($sql)) {
-            throw new PrestaShopException('Failed to drop inactive unverified VAT numbers: '.Db::getInstance()->getMsgError());
-        }
-        static::$statusCache = [];
 
-        return (int) Db::getInstance()->Affected_Rows();
+        $active = array_fill_keys($activeNumbers, true);
+        $ids = [];
+        foreach ($candidates as $row) {
+            if (!isset($active[$row['vat_number']])) {
+                $ids[] = (int) $row['id_vatnumber_check'];
+            }
+        }
+
+        return static::deleteByIds($ids);
+    }
+
+    /**
+     * Delete rows by primary key, in chunks.
+     *
+     * @param int[] $ids
+     *
+     * @return int Rows deleted.
+     *
+     * @throws PrestaShopException
+     */
+    protected static function deleteByIds(array $ids)
+    {
+        $deleted = 0;
+        foreach (array_chunk($ids, static::SQL_CHUNK_SIZE) as $chunk) {
+            $sql = 'DELETE FROM `'._DB_PREFIX_.'vatnumber_check` WHERE id_vatnumber_check IN ('.implode(', ', array_map('intval', $chunk)).')';
+            if (!Db::getInstance()->execute($sql)) {
+                throw new PrestaShopException('Failed to delete VAT number checks: '.Db::getInstance()->getMsgError());
+            }
+            $deleted += (int) Db::getInstance()->Affected_Rows();
+        }
+        if ($deleted) {
+            static::$statusCache = [];
+        }
+
+        return $deleted;
+    }
+
+    /**
+     * Queue VAT numbers that exist on customer addresses but have no check
+     * record yet, so the cron verifies them. This is what makes the queue
+     * self healing: numbers stored while checking was off, imported
+     * addresses, or anything that slipped past the save-time check all get
+     * picked up eventually.
+     *
+     * @param string[] $numbers Normalized numbers from getAddressNumbers().
+     * @param int $limit Maximum numbers to queue in one call.
+     *
+     * @return int Number of rows created.
+     *
+     * @throws PrestaShopException
+     */
+    public static function queueMissing(array $numbers, $limit)
+    {
+        if (!$numbers) {
+            return 0;
+        }
+
+        $known = [];
+        foreach (array_chunk($numbers, static::SQL_CHUNK_SIZE) as $chunk) {
+            $quoted = array_map(function ($n) {
+                return '\''.pSQL($n).'\'';
+            }, $chunk);
+            $rows = Db::getInstance()->executeS(
+                (new DbQuery())
+                    ->select('vat_number')
+                    ->from('vatnumber_check')
+                    ->where('vat_number IN ('.implode(', ', $quoted).')')
+            );
+            if ($rows === false) {
+                throw new PrestaShopException('Failed to read known VAT numbers: '.Db::getInstance()->getMsgError());
+            }
+            foreach ($rows as $row) {
+                $known[$row['vat_number']] = true;
+            }
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $inserts = [];
+        foreach ($numbers as $normalized) {
+            if (isset($known[$normalized])) {
+                continue;
+            }
+            if (count($inserts) >= (int) $limit) {
+                break;
+            }
+            $inserts[] = [
+                'vat_number'       => pSQL($normalized),
+                'country_code'     => pSQL(substr($normalized, 0, 2)),
+                'status'           => static::STATUS_UNVERIFIED,
+                'source'           => static::SOURCE_FORMAT,
+                'vies_request_id'  => '',
+                'trader_name'      => '',
+                'trader_address'   => '',
+                'id_address'       => 0,
+                'id_customer'      => 0,
+                'valid_request_id' => '',
+                'date_add'         => $now,
+                'date_upd'         => $now,
+            ];
+        }
+        if (!$inserts) {
+            return 0;
+        }
+
+        // INSERT IGNORE against the unique key: a concurrent front office
+        // save of the same number simply wins, no duplicate key failure.
+        // valid_date is left out so it takes its NULL column default.
+        $created = 0;
+        foreach (array_chunk($inserts, static::SQL_CHUNK_SIZE) as $chunk) {
+            if (!Db::getInstance()->insert('vatnumber_check', $chunk, false, true, Db::INSERT_IGNORE)) {
+                throw new PrestaShopException('Failed to queue VAT numbers: '.Db::getInstance()->getMsgError());
+            }
+            $created += (int) Db::getInstance()->Affected_Rows();
+        }
+
+        return $created;
     }
 }

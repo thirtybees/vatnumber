@@ -7,7 +7,7 @@ tags:
   - value-added-tax
   - VAT exemption
   - vatnumber
-description_short: This module adds handling of VAT exemptions of various tax laws.
+description_short: EU VAT exemption (reverse charge) with VIES verification, local cache and outage handling.
 description: description.md
 images:
   - image-1.png
