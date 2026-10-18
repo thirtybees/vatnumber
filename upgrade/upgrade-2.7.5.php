@@ -36,7 +36,7 @@ if (!defined('_TB_VERSION_')) {
  * @return bool
  * @throws PrestaShopException
  */
-function upgrade_module_2_7_5($module)
+function upgrade_module_2_7_5(VatNumber $module): bool
 {
     // Make sure the table exists before probing it; a shop that lost it
     // gets it back with the complete current schema.

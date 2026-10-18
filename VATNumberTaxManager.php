@@ -87,7 +87,7 @@ class VATNumberTaxManager implements TaxManagerInterface
 
     /**
      * @return TaxCalculator
-     * @throws Exception
+     * @throws PrestaShopException
      */
     public function getTaxCalculator()
     {

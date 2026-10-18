@@ -79,7 +79,7 @@ class VatNumberFormat
      *
      * @return bool
      */
-    public static function isValid($countryCode, $number)
+    public static function isValid(string $countryCode, string $number): bool
     {
         $countryCode = strtoupper((string) $countryCode);
         if (!isset(static::$patterns[$countryCode])) {

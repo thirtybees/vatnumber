@@ -33,7 +33,7 @@ if (!defined('_TB_VERSION_')) {
  * @return bool
  * @throws PrestaShopException
  */
-function upgrade_module_2_7_1($module)
+function upgrade_module_2_7_1(VatNumber $module): bool
 {
     $result = $module->registerHook('actionObjectAddressAddBefore')
         && $module->registerHook('actionObjectAddressUpdateBefore');

@@ -39,7 +39,7 @@ if (!defined('_TB_VERSION_')) {
  * @return bool
  * @throws PrestaShopException
  */
-function upgrade_module_2_7_6($module)
+function upgrade_module_2_7_6(VatNumber $module): bool
 {
     $result = $module->executeSqlScript('install');
 

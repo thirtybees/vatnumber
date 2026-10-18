@@ -28,7 +28,7 @@ if (!defined('_TB_VERSION_')) {
  * @throws PrestaShopDatabaseException
  * @throws PrestaShopException
  */
-function upgrade_module_2_6_0($module)
+function upgrade_module_2_6_0(VatNumber $module): bool
 {
     return (bool) $module->registerHook('actionObjectAddressValidateController');
 }

@@ -28,6 +28,9 @@ if (!defined('_TB_VERSION_')) {
  */
 class AdminVatNumberHowToController extends ModuleAdminController
 {
+    /**
+     * @throws PrestaShopException
+     */
     public function __construct()
     {
         $this->bootstrap = true;

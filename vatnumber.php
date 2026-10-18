@@ -104,7 +104,7 @@ class VatNumber extends TaxManagerModule
     {
         $this->name = 'vatnumber';
         $this->tab = 'billing_invoicing';
-        $this->version = '2.7.6';
+        $this->version = '2.7.7';
         $this->author = 'thirty bees';
         $this->need_instance = true;
 
@@ -179,10 +179,12 @@ class VatNumber extends TaxManagerModule
     }
 
     /**
+     * Whether the check table exists.
+     *
      * @return bool
      * @throws PrestaShopException
      */
-    public static function checkTableExists()
+    public static function checkTableExists(): bool
     {
         $pattern = str_replace('_', '\_', _DB_PREFIX_.'vatnumber_check');
         $rows = Db::getInstance()->executeS('SHOW TABLES LIKE \''.pSQL($pattern).'\'');
@@ -200,7 +202,7 @@ class VatNumber extends TaxManagerModule
      * @return bool
      * @throws PrestaShopException
      */
-    public function installTab()
+    public function installTab(): bool
     {
         if ((int) Tab::getIdFromClassName('AdminVatNumberHowTo')) {
             return true;
@@ -209,7 +211,7 @@ class VatNumber extends TaxManagerModule
         $tab->class_name = 'AdminVatNumberHowTo';
         $tab->module = $this->name;
         $tab->id_parent = (int) Tab::getIdFromClassName('AdminParentLocalization');
-        $tab->active = 1;
+        $tab->active = true;
         foreach (Language::getLanguages(false) as $language) {
             $tab->name[(int) $language['id_lang']] = 'VAT numbers how-to';
         }
@@ -221,10 +223,12 @@ class VatNumber extends TaxManagerModule
     }
 
     /**
+     * Remove the how-to tab, if present.
+     *
      * @return bool
      * @throws PrestaShopException
      */
-    public function uninstallTab()
+    public function uninstallTab(): bool
     {
         $idTab = (int) Tab::getIdFromClassName('AdminVatNumberHowTo');
         if (!$idTab) {
@@ -245,7 +249,7 @@ class VatNumber extends TaxManagerModule
      *
      * @return string
      */
-    protected static function translate($string)
+    protected static function translate(string $string): string
     {
         return Translate::getModuleTranslation('vatnumber', $string, 'vatnumber');
     }
@@ -258,7 +262,7 @@ class VatNumber extends TaxManagerModule
      * @return string
      * @throws PrestaShopException
      */
-    public static function generateCronToken()
+    public static function generateCronToken(): string
     {
         $token = Tools::passwdGen(32);
         if (strlen($token) !== 32 || count(array_unique(str_split($token))) < static::MIN_TOKEN_DISTINCT_CHARS) {
@@ -276,21 +280,24 @@ class VatNumber extends TaxManagerModule
      *
      * @param string $key
      *
-     * @return mixed
+     * @return string|null|false
+     * @throws PrestaShopException
      */
-    public static function getGlobal($key)
+    public static function getGlobal(string $key)
     {
         return Configuration::getGlobalValue($key);
     }
 
     /**
+     * Store a configuration value in the global scope, see getGlobal().
+     *
      * @param string $key
      * @param mixed $value
      *
      * @return bool
      * @throws PrestaShopException
      */
-    public static function setGlobal($key, $value)
+    public static function setGlobal(string $key, $value): bool
     {
         return Configuration::updateGlobalValue($key, $value);
     }
@@ -306,7 +313,7 @@ class VatNumber extends TaxManagerModule
      * @return bool
      * @throws PrestaShopException
      */
-    public function executeSqlScript($script)
+    public function executeSqlScript(string $script): bool
     {
         $allowed = [
             'install',
@@ -352,7 +359,7 @@ class VatNumber extends TaxManagerModule
      * @return bool
      * @throws PrestaShopException
      */
-    public static function checkTableHasColumn($column)
+    public static function checkTableHasColumn(string $column): bool
     {
         $rows = Db::getInstance()->executeS('SHOW COLUMNS FROM `'._DB_PREFIX_.'vatnumber_check` WHERE Field = \''.pSQL($column).'\'');
 
@@ -360,12 +367,15 @@ class VatNumber extends TaxManagerModule
     }
 
     /**
+     * Whether the check table has an index with this name. Used by upgrades
+     * to apply schema scripts only once.
+     *
      * @param string $index
      *
      * @return bool
      * @throws PrestaShopException
      */
-    public static function checkTableHasIndex($index)
+    public static function checkTableHasIndex(string $index): bool
     {
         $rows = Db::getInstance()->executeS('SHOW INDEX FROM `'._DB_PREFIX_.'vatnumber_check` WHERE Key_name = \''.pSQL($index).'\'');
 
@@ -380,6 +390,9 @@ class VatNumber extends TaxManagerModule
      * The check table is dropped, including the VIES consultation IDs. That
      * is documented on the how-to page and in the README: make a backup
      * before uninstalling if the proof is still needed.
+     *
+     * @param bool $keepTable Keep the check table, used by the install
+     *                        rollback when the table existed before.
      *
      * @return bool
      * @throws PrestaShopDatabaseException
@@ -405,6 +418,8 @@ class VatNumber extends TaxManagerModule
     }
 
     /**
+     * Enable the module and switch VAT number management on.
+     *
      * @param bool $forceAll
      *
      * @return bool
@@ -418,7 +433,10 @@ class VatNumber extends TaxManagerModule
     }
 
     /**
+     * Disable the module and switch VAT number management off.
+     *
      * @param bool $forceAll
+     *
      * @return void
      * @throws PrestaShopDatabaseException
      * @throws PrestaShopException
@@ -495,7 +513,7 @@ class VatNumber extends TaxManagerModule
      * @return void
      * @throws PrestaShopException
      */
-    protected function validateAddressFromBackOffice($params)
+    protected function validateAddressFromBackOffice(array $params): void
     {
         $controller = $this->context->controller;
         if (!($controller instanceof Controller) || $controller->controller_type !== 'admin') {
@@ -531,6 +549,7 @@ class VatNumber extends TaxManagerModule
      * @param array $params Hook parameters, contains 'id_order'.
      *
      * @return string
+     * @throws PrestaShopException
      */
     public function hookDisplayAdminOrder($params)
     {
@@ -567,7 +586,7 @@ class VatNumber extends TaxManagerModule
      * @return string
      * @throws PrestaShopException
      */
-    protected function renderOrderVatPanel($order, $vatNumber)
+    protected function renderOrderVatPanel(Order $order, string $vatNumber): string
     {
         $vatCharged = ((float) $order->total_paid_tax_incl - (float) $order->total_paid_tax_excl) > static::VAT_CHARGED_EPSILON;
 
@@ -644,9 +663,9 @@ class VatNumber extends TaxManagerModule
     /**
      * Map of address country ISO code to VIES VAT number prefix.
      *
-     * @return string[]
+     * @return array<string, string>
      */
-    public static function getPrefixIntracomVAT()
+    public static function getPrefixIntracomVAT(): array
     {
         $intracomArray = [
             'AT' => 'AT', //Austria
@@ -690,10 +709,11 @@ class VatNumber extends TaxManagerModule
      * country.
      *
      * @param int $idCountry
-     * @return boolean
+     *
+     * @return bool
      * @throws PrestaShopException
      */
-    public static function isApplicable($idCountry)
+    public static function isApplicable(int $idCountry): bool
     {
         $idCountry = (int)$idCountry;
         if ($idCountry) {
@@ -711,12 +731,13 @@ class VatNumber extends TaxManagerModule
      * Several ISO codes can map to one prefix (FR and FX), and XI numbers
      * belong to Northern Ireland businesses whose address country is GB.
      *
-     * @param string $isoAddress Country ISO code of the address.
+     * @param string|false $isoAddress Country ISO code of the address, false
+     *                                 when the country is unknown.
      * @param string $prefix VIES prefix of the number.
      *
      * @return bool
      */
-    public static function countryMatchesPrefix($isoAddress, $prefix)
+    public static function countryMatchesPrefix($isoAddress, string $prefix): bool
     {
         $isoAddress = strtoupper((string) $isoAddress);
         $prefix = strtoupper((string) $prefix);
@@ -736,7 +757,7 @@ class VatNumber extends TaxManagerModule
      * @return string|null Translated error message, or null when the shape
      *                     is fine.
      */
-    public static function checkNumberShape($normalized)
+    public static function checkNumberShape(string $normalized): ?string
     {
         $prefix = substr($normalized, 0, 2);
         if (strlen($normalized) < 3 || !in_array($prefix, static::getPrefixIntracomVAT(), true)) {
@@ -761,7 +782,7 @@ class VatNumber extends TaxManagerModule
      * @return bool
      * @throws PrestaShopException
      */
-    public static function isPlausibleForAddress($address)
+    public static function isPlausibleForAddress(Address $address): bool
     {
         $vatNumber = trim((string) $address->vat_number);
         if ($vatNumber === '' || VatNumberCheck::isLegacySentinel($vatNumber)) {
@@ -855,11 +876,11 @@ class VatNumber extends TaxManagerModule
      * core assigns it after validation and uses a placeholder during one
      * step registration.
      *
-     * @param Address $address
+     * @param AddressCore $address
      *
      * @return int
      */
-    protected static function resolveCustomerId($address)
+    protected static function resolveCustomerId(AddressCore $address): int
     {
         $context = Context::getContext();
         $controller = ($context && isset($context->controller)) ? $context->controller : null;
@@ -881,12 +902,13 @@ class VatNumber extends TaxManagerModule
      * Company name for a VAT number check: the address company, or the
      * customer account's company when the address field is empty.
      *
-     * @param Address $address
+     * @param AddressCore $address
      * @param int $idCustomer
      *
      * @return string
+     * @throws PrestaShopException
      */
-    protected static function companyNameFor($address, $idCustomer)
+    protected static function companyNameFor(AddressCore $address, int $idCustomer): string
     {
         $company = trim((string) $address->company);
         if ($company === '' && $idCustomer) {
@@ -923,12 +945,12 @@ class VatNumber extends TaxManagerModule
      * @param int $idAddress Address the number belongs to, if known.
      * @param int $idCustomer Customer submitting it, if known.
      *
-     * @return array Error messages. An empty array means the number is
-     *               valid, cached valid, or provisionally accepted.
+     * @return string[] Error messages. An empty array means the number is
+     *                  valid, cached valid, or provisionally accepted.
      *
      * @throws PrestaShopException
      */
-    public static function webServiceCheck($vatNumber, $idAddress = 0, $idCustomer = 0)
+    public static function webServiceCheck(string $vatNumber, int $idAddress = 0, int $idCustomer = 0): array
     {
         $normalized = VatNumberCheck::normalize($vatNumber);
         if ($normalized === '') {
@@ -1015,7 +1037,7 @@ class VatNumber extends TaxManagerModule
      * @return void
      * @throws PrestaShopException
      */
-    protected static function openBreaker()
+    protected static function openBreaker(): void
     {
         static::setGlobal('VATNUMBER_VIES_DOWN_UNTIL', time() + static::VIES_BREAKER_SECONDS);
     }
@@ -1034,7 +1056,7 @@ class VatNumber extends TaxManagerModule
      * @return void
      * @throws PrestaShopException
      */
-    protected static function acceptProvisionally($check, $normalized, $countryCode, $idAddress, $idCustomer)
+    protected static function acceptProvisionally(?VatNumberCheck $check, string $normalized, string $countryCode, int $idAddress, int $idCustomer): void
     {
         if ($check && $check->status === VatNumberCheck::STATUS_VALID) {
             return;
@@ -1047,8 +1069,9 @@ class VatNumber extends TaxManagerModule
      * or not a valid date.
      *
      * @return string|null Date in Y-m-d format.
+     * @throws PrestaShopException
      */
-    public static function getVerifySince()
+    public static function getVerifySince(): ?string
     {
         $date = trim((string) Configuration::get('VATNUMBER_VERIFY_SINCE'));
         if ($date === '' || !Validate::isDate($date)) {
@@ -1063,11 +1086,13 @@ class VatNumber extends TaxManagerModule
      * fields, or null when not configured. Sending it makes VIES return a
      * consultation ID with every check.
      *
-     * @return array|null ['countryCode' => 'NL', 'number' => '123456789B01']
+     * @return array{countryCode: string, number: string}|null For example
+     *         ['countryCode' => 'NL', 'number' => '123456789B01'].
+     * @throws PrestaShopException
      */
-    public static function getRequester()
+    public static function getRequester(): ?array
     {
-        $own = VatNumberCheck::normalize(Configuration::get('VATNUMBER_OWN_NUMBER'));
+        $own = VatNumberCheck::normalize((string) Configuration::get('VATNUMBER_OWN_NUMBER'));
         if (strlen($own) < 4) {
             return null;
         }
@@ -1082,13 +1107,14 @@ class VatNumber extends TaxManagerModule
      * @param int|null $limit Maximum numbers to check in one run, defaults
      *                        to CRON_BATCH_SIZE, capped at CRON_MAX_BATCH_SIZE.
      *
-     * @return array Summary: numbers checked, confirmed, rejected (by VIES),
+     * @return array{checked: int, confirmed: int, rejected: int, malformed: int, failed: int, pending: int, vies_down: bool, purged: int, dropped_old: int, queued: int, message: string}
+     *               Summary: numbers checked, confirmed, rejected (by VIES),
      *               malformed (settled locally), failed, purged, dropped_old,
      *               queued, pending, vies_down, and a plain words message.
      *
      * @throws PrestaShopException
      */
-    public static function runBackgroundChecks($limit = null)
+    public static function runBackgroundChecks(?int $limit = null): array
     {
         $limit = min(static::CRON_MAX_BATCH_SIZE, max(1, (int) ($limit === null ? static::CRON_BATCH_SIZE : $limit)));
         $deadline = microtime(true) + static::CRON_TIME_BUDGET_SECONDS;
@@ -1141,9 +1167,10 @@ class VatNumber extends TaxManagerModule
      *
      * @param int $limit Batch size of this run.
      *
-     * @return array ['purged' => int, 'dropped_old' => int, 'queued' => int]
+     * @return array{purged: int, dropped_old: int, queued: int}
+     * @throws PrestaShopException
      */
-    protected static function runHousekeeping($limit)
+    protected static function runHousekeeping(int $limit): array
     {
         $result = ['purged' => 0, 'dropped_old' => 0, 'queued' => 0];
         $verifySince = static::getVerifySince();
@@ -1178,14 +1205,17 @@ class VatNumber extends TaxManagerModule
      * prefix or format, e.g. seeded legacy garbage) are settled locally,
      * VIES would only say no.
      *
-     * @param array $row Table row.
-     * @param array $summary Updated in place.
-     * @param array $rejected Numbers VIES rejected, collected for the log.
-     * @param array $malformed Numbers settled locally, collected for the log.
+     * @param array{id_vatnumber_check:string,vat_number:string,country_code:string,status:string} $row
+     *        Table row (all columns; only the ones used are listed).
+     * @param array{checked:int,confirmed:int,rejected:int,malformed:int,failed:int,pending:int,vies_down:bool,purged:int,dropped_old:int,queued:int} $summary
+     *        Updated in place.
+     * @param string[] $rejected Numbers VIES rejected, collected for the log.
+     * @param string[] $malformed Numbers settled locally, collected for the log.
      *
      * @return bool False when the run should stop (VIES unreachable).
+     * @throws PrestaShopException
      */
-    protected static function checkQueuedRow($row, array &$summary, array &$rejected, array &$malformed)
+    protected static function checkQueuedRow(array $row, array &$summary, array &$rejected, array &$malformed): bool
     {
         $number = $row['vat_number'];
         try {
@@ -1256,11 +1286,13 @@ class VatNumber extends TaxManagerModule
      * attempt. Valid rows keep their date_upd: it is the audit timestamp of
      * the last confirmation.
      *
-     * @param array $row
+     * @param array{id_vatnumber_check:string,vat_number:string,country_code:string,status:string} $row
+     *        Table row (all columns; only the ones used are listed).
      *
      * @return void
+     * @throws PrestaShopException
      */
-    protected static function rotateRow($row)
+    protected static function rotateRow(array $row): void
     {
         if ($row['status'] !== VatNumberCheck::STATUS_UNVERIFIED) {
             return;
@@ -1281,8 +1313,9 @@ class VatNumber extends TaxManagerModule
      * @param string[] $malformed
      *
      * @return void
+     * @throws PrestaShopException
      */
-    protected static function logRejections(array $rejected, array $malformed)
+    protected static function logRejections(array $rejected, array $malformed): void
     {
         if ($rejected) {
             $shown = array_slice($rejected, 0, static::MAX_REJECTED_IN_LOG);
@@ -1307,11 +1340,11 @@ class VatNumber extends TaxManagerModule
      * A plain words status line, so a run that had nothing to do does not
      * look broken to whoever reads the JSON.
      *
-     * @param array $summary
+     * @param array{checked:int,confirmed:int,rejected:int,malformed:int,failed:int,pending:int,vies_down:bool,purged:int,dropped_old:int,queued:int} $summary
      *
      * @return string
      */
-    protected static function describeRun(array $summary)
+    protected static function describeRun(array $summary): string
     {
         if ($summary['vies_down']) {
             return 'VIES was unreachable, the run stopped early; pending numbers are retried next run';
@@ -1331,6 +1364,8 @@ class VatNumber extends TaxManagerModule
     }
 
     /**
+     * Module configuration page.
+     *
      * @return string
      * @throws PrestaShopException
      * @throws SmartyException
@@ -1360,7 +1395,7 @@ class VatNumber extends TaxManagerModule
      *
      * @return string
      */
-    protected static function getStringValue($key, $default = '')
+    protected static function getStringValue(string $key, string $default = ''): string
     {
         $value = Tools::getValue($key, $default);
 
@@ -1374,7 +1409,7 @@ class VatNumber extends TaxManagerModule
      * @return string
      * @throws PrestaShopException
      */
-    protected function renderExplanationPanel()
+    protected function renderExplanationPanel(): string
     {
         $howToLink = $this->context->link->getAdminLink('AdminVatNumberHowTo', true);
 
@@ -1394,7 +1429,7 @@ class VatNumber extends TaxManagerModule
      * @return string Confirmation or error HTML.
      * @throws PrestaShopException
      */
-    protected function processSaveSettings()
+    protected function processSaveSettings(): string
     {
         $verifySince = trim(static::getStringValue('VATNUMBER_VERIFY_SINCE'));
         if ($verifySince !== '' && (!Validate::isDate($verifySince) || !strtotime($verifySince))) {
@@ -1459,7 +1494,7 @@ class VatNumber extends TaxManagerModule
      * @return string
      * @throws PrestaShopException
      */
-    protected function renderStatusPanel()
+    protected function renderStatusPanel(): string
     {
         $pending = VatNumberCheck::countPending();
         $lastRun = (int) static::getGlobal('VATNUMBER_CRON_LAST_RUN');
@@ -1499,9 +1534,9 @@ class VatNumber extends TaxManagerModule
      * Shared on/off values block for switch inputs. The admin form template
      * renders its own Yes/No labels.
      *
-     * @return array
+     * @return array<int, array{id: string, value: int}>
      */
-    protected function getSwitchValues()
+    protected function getSwitchValues(): array
     {
         return [
             ['id' => 'active_on', 'value' => 1],
@@ -1512,10 +1547,10 @@ class VatNumber extends TaxManagerModule
     /**
      * Settings form definition.
      *
-     * @return array
+     * @return array<string, mixed>
      * @throws PrestaShopException
      */
-    protected function getSettingsForm()
+    protected function getSettingsForm(): array
     {
         $countries = Country::getCountries($this->context->language->id);
         $countriesFmt = [
@@ -1594,9 +1629,9 @@ class VatNumber extends TaxManagerModule
      *
      * @param string $checkResultHtml Result of a check just performed.
      *
-     * @return array
+     * @return array<string, mixed>
      */
-    protected function getManualCheckForm($checkResultHtml)
+    protected function getManualCheckForm(string $checkResultHtml): array
     {
         return [
             'form' => [
@@ -1625,13 +1660,15 @@ class VatNumber extends TaxManagerModule
     }
 
     /**
+     * Render the settings form and the manual check form.
+     *
      * @param string $checkResultHtml Result of a manual check just performed.
      *
      * @return string
      * @throws PrestaShopException
      * @throws SmartyException
      */
-    public function renderForm($checkResultHtml = '')
+    public function renderForm(string $checkResultHtml = ''): string
     {
         /** @var AdminController $controller */
         $controller = $this->context->controller;
@@ -1641,7 +1678,7 @@ class VatNumber extends TaxManagerModule
         $helper->table = $this->table;
         $lang = new Language((int) Configuration::get('PS_LANG_DEFAULT'));
         $helper->default_form_language = $lang->id;
-        $helper->allow_employee_form_lang = Configuration::get('PS_BO_ALLOW_EMPLOYEE_FORM_LANG') ? Configuration::get('PS_BO_ALLOW_EMPLOYEE_FORM_LANG') : 0;
+        $helper->allow_employee_form_lang = (bool) Configuration::get('PS_BO_ALLOW_EMPLOYEE_FORM_LANG');
 
         $helper->identifier = $this->identifier;
         $helper->currentIndex = $this->context->link->getAdminLink('AdminModules', false).'&configure='.$this->name.'&tab_module='.$this->tab.'&module_name='.$this->name;
@@ -1659,10 +1696,13 @@ class VatNumber extends TaxManagerModule
     }
 
     /**
-     * @return array
+     * Current values for the settings and manual check forms; a submitted
+     * value wins over the stored one.
+     *
+     * @return array<string, int|string>
      * @throws PrestaShopException
      */
-    public function getConfigFieldsValues()
+    public function getConfigFieldsValues(): array
     {
         return [
             'VATNUMBER_COUNTRY' => (int) Tools::getValue('VATNUMBER_COUNTRY', Configuration::get('VATNUMBER_COUNTRY')),
@@ -1685,6 +1725,7 @@ class VatNumber extends TaxManagerModule
      *
      * @param Context $context
      *
+     * @return void
      * @throws PrestaShopException
      */
     public static function assignTemplateVars(Context $context)
@@ -1706,8 +1747,9 @@ class VatNumber extends TaxManagerModule
      * local cache, like a front office check would.
      *
      * @return string
+     * @throws PrestaShopException
      */
-    protected function processVatNumberCheck()
+    protected function processVatNumberCheck(): string
     {
         $vatnumber = VatNumberCheck::normalize(static::getStringValue('CHECK_VATNUMBER'));
         $shapeError = static::checkNumberShape($vatnumber);

@@ -34,7 +34,7 @@ if (!defined('_TB_VERSION_')) {
  * @return bool
  * @throws PrestaShopException
  */
-function upgrade_module_2_7_0($module)
+function upgrade_module_2_7_0(VatNumber $module): bool
 {
     $result = $module->executeSqlScript('install')
         && $module->registerHook('actionObjectAddressAddBefore')

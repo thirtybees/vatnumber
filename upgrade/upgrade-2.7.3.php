@@ -29,7 +29,7 @@ if (!defined('_TB_VERSION_')) {
  * @return bool
  * @throws PrestaShopException
  */
-function upgrade_module_2_7_3($module)
+function upgrade_module_2_7_3(VatNumber $module): bool
 {
     return (bool) $module->registerHook('displayAdminOrder');
 }

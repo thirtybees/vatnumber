@@ -42,6 +42,7 @@ class VatnumberCronModuleFrontController extends ModuleFrontController
 
     /**
      * @return void
+     * @throws PrestaShopException
      */
     public function run()
     {
@@ -111,11 +112,11 @@ class VatnumberCronModuleFrontController extends ModuleFrontController
      * Send a JSON response and stop.
      *
      * @param int $httpCode
-     * @param mixed $body
+     * @param array<string,mixed>|null $body
      *
      * @return void
      */
-    protected function respond($httpCode, $body)
+    protected function respond(int $httpCode, ?array $body): void
     {
         http_response_code($httpCode);
         $json = json_encode($body);

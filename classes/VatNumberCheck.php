@@ -102,7 +102,7 @@ class VatNumberCheck extends ObjectModel
     /** @var string Timestamp of the latest check. */
     public $date_upd;
 
-    /** @var array Per-request memo for getStatus(), avoids repeated queries. */
+    /** @var array<string, string|null> Per-request memo for getStatus(), avoids repeated queries. */
     protected static $statusCache = [];
 
     /**
@@ -136,11 +136,13 @@ class VatNumberCheck extends ObjectModel
      * leading zero restored. The '+' and '*' of the legacy Irish format are
      * part of the number and are kept.
      *
-     * @param string $vatNumber
+     * @param string|false|null $vatNumber Raw value; false (unset
+     *                                     configuration) and null count as
+     *                                     empty.
      *
      * @return string
      */
-    public static function normalize($vatNumber)
+    public static function normalize($vatNumber): string
     {
         $normalized = strtoupper(preg_replace('/[^A-Za-z0-9+*]/', '', (string) $vatNumber));
         if (substr($normalized, 0, 2) === 'GR') {
@@ -161,7 +163,7 @@ class VatNumberCheck extends ObjectModel
      *
      * @return bool
      */
-    public static function isLegacySentinel($vatNumber)
+    public static function isLegacySentinel(string $vatNumber): bool
     {
         return static::normalize($vatNumber) === static::normalize(VatNumber::VAT_EXEMPTION_FLAG);
     }
@@ -177,7 +179,7 @@ class VatNumberCheck extends ObjectModel
      *
      * @throws PrestaShopException
      */
-    public static function findByNumber($normalizedNumber)
+    public static function findByNumber(string $normalizedNumber): ?VatNumberCheck
     {
         $row = Db::getInstance()->getRow(
             (new DbQuery())
@@ -207,7 +209,7 @@ class VatNumberCheck extends ObjectModel
      *
      * @throws PrestaShopException
      */
-    public static function getStatus($normalizedNumber)
+    public static function getStatus(string $normalizedNumber): ?string
     {
         if (!array_key_exists($normalizedNumber, static::$statusCache)) {
             // Master on purpose: a replica lagging behind a confirmation
@@ -245,7 +247,7 @@ class VatNumberCheck extends ObjectModel
      *
      * @throws PrestaShopException
      */
-    public static function recordResult($normalizedNumber, $countryCode, $status, $source, $requestId = '', $traderName = '', $traderAddress = '', $idAddress = 0, $idCustomer = 0)
+    public static function recordResult(string $normalizedNumber, string $countryCode, string $status, string $source, string $requestId = '', string $traderName = '', string $traderAddress = '', int $idAddress = 0, int $idCustomer = 0): VatNumberCheck
     {
         $check = static::findByNumber($normalizedNumber);
         if (!$check) {
@@ -299,7 +301,7 @@ class VatNumberCheck extends ObjectModel
      *
      * @return void
      */
-    protected static function applyResult($check, $countryCode, $status, $source, $requestId, $traderName, $traderAddress, $idAddress, $idCustomer)
+    protected static function applyResult(VatNumberCheck $check, string $countryCode, string $status, string $source, string $requestId, string $traderName, string $traderAddress, int $idAddress, int $idCustomer): void
     {
         $check->country_code = strtoupper((string) $countryCode);
         $check->status = $status;
@@ -331,7 +333,7 @@ class VatNumberCheck extends ObjectModel
      *
      * @return bool
      */
-    public function isFreshValid()
+    public function isFreshValid(): bool
     {
         return $this->status === static::STATUS_VALID
             && $this->source === static::SOURCE_VIES
@@ -345,7 +347,7 @@ class VatNumberCheck extends ObjectModel
      *
      * @return bool
      */
-    public function isFreshInvalid()
+    public function isFreshInvalid(): bool
     {
         return $this->status === static::STATUS_INVALID
             && $this->source === static::SOURCE_VIES
@@ -365,7 +367,7 @@ class VatNumberCheck extends ObjectModel
      *
      * @throws PrestaShopException
      */
-    public static function countRecentByCustomer($idCustomer, $seconds)
+    public static function countRecentByCustomer(int $idCustomer, int $seconds): int
     {
         return (int) Db::getInstance()->getValue(
             (new DbQuery())
@@ -381,11 +383,14 @@ class VatNumberCheck extends ObjectModel
      *
      * @param int $limit
      *
-     * @return array Rows with all table columns.
+     * @return array<int, array{id_vatnumber_check: int|string, vat_number: string, country_code: string, status: string, source: string, vies_request_id: string, trader_name: string, trader_address: string, id_address: int|string, id_customer: int|string, valid_request_id: string, valid_date: string|null, date_add: string, date_upd: string}>
+     *         Rows with all table columns, as the database returns them
+     *         (integer columns are strings unless the shop enabled native
+     *         database types).
      *
      * @throws PrestaShopException
      */
-    public static function getPending($limit)
+    public static function getPending(int $limit): array
     {
         $result = Db::getInstance()->executeS(
             (new DbQuery())
@@ -409,7 +414,7 @@ class VatNumberCheck extends ObjectModel
      *
      * @throws PrestaShopException
      */
-    public static function countPending()
+    public static function countPending(): int
     {
         return (int) Db::getInstance()->getValue(
             (new DbQuery())
@@ -425,11 +430,14 @@ class VatNumberCheck extends ObjectModel
      *
      * @param int $limit
      *
-     * @return array Rows with all table columns.
+     * @return array<int, array{id_vatnumber_check: int|string, vat_number: string, country_code: string, status: string, source: string, vies_request_id: string, trader_name: string, trader_address: string, id_address: int|string, id_customer: int|string, valid_request_id: string, valid_date: string|null, date_add: string, date_upd: string}>
+     *         Rows with all table columns, as the database returns them
+     *         (integer columns are strings unless the shop enabled native
+     *         database types).
      *
      * @throws PrestaShopException
      */
-    public static function getStale($limit)
+    public static function getStale(int $limit): array
     {
         $result = Db::getInstance()->executeS(
             (new DbQuery())
@@ -455,9 +463,10 @@ class VatNumberCheck extends ObjectModel
      * @param int $idVatNumberCheck
      *
      * @return void
+     *
      * @throws PrestaShopException
      */
-    public static function touchRow($idVatNumberCheck)
+    public static function touchRow(int $idVatNumberCheck): void
     {
         $ok = Db::getInstance()->update(
             'vatnumber_check',
@@ -493,7 +502,7 @@ class VatNumberCheck extends ObjectModel
      *                             callers must never treat that as "no
      *                             numbers".
      */
-    public static function getAddressNumbers($sinceDate = null, $includeDeleted = false)
+    public static function getAddressNumbers(?string $sinceDate = null, bool $includeDeleted = false): array
     {
         $base = 'SELECT DISTINCT a.vat_number FROM `'._DB_PREFIX_.'address` a WHERE a.vat_number != \'\'';
         if (!$includeDeleted) {
@@ -545,7 +554,7 @@ class VatNumberCheck extends ObjectModel
      *
      * @throws PrestaShopException
      */
-    public static function purgeOrphaned(array $liveNumbers)
+    public static function purgeOrphaned(array $liveNumbers): int
     {
         $cutoff = date('Y-m-d H:i:s', strtotime('-'.static::PURGE_DAYS.' days'));
         $candidates = Db::getInstance()->executeS(
@@ -589,7 +598,7 @@ class VatNumberCheck extends ObjectModel
      *
      * @throws PrestaShopException
      */
-    public static function removeInactiveUnverified(array $activeNumbers)
+    public static function removeInactiveUnverified(array $activeNumbers): int
     {
         $candidates = Db::getInstance()->executeS(
             (new DbQuery())
@@ -623,7 +632,7 @@ class VatNumberCheck extends ObjectModel
      *
      * @throws PrestaShopException
      */
-    protected static function deleteByIds(array $ids)
+    protected static function deleteByIds(array $ids): int
     {
         $deleted = 0;
         foreach (array_chunk($ids, static::SQL_CHUNK_SIZE) as $chunk) {
@@ -654,7 +663,7 @@ class VatNumberCheck extends ObjectModel
      *
      * @throws PrestaShopException
      */
-    public static function queueMissing(array $numbers, $limit)
+    public static function queueMissing(array $numbers, int $limit): int
     {
         if (!$numbers) {
             return 0;

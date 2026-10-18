@@ -76,23 +76,20 @@ class VatNumberViesClient
      *
      * @param string $countryCode VIES country code, e.g. 'NL' or 'EL'.
      * @param string $number Number part after the country prefix.
-     * @param array|null $requester The shop's own VAT number as
-     *                              ['countryCode' => .., 'number' => ..].
-     *                              When given, VIES returns a consultation
-     *                              ID (requestIdentifier) with the answer.
+     * @param array{countryCode:string,number:string}|null $requester The
+     *        shop's own VAT number. When given, VIES returns a consultation
+     *        ID (requestIdentifier) with the answer.
      * @param bool $interactive True when a customer is waiting: short
      *                          timeouts, no SOAP fallback.
      *
-     * @return array with keys:
-     *               'valid' (bool),
-     *               'requestIdentifier' (string) consultation ID, proof of the check,
-     *               'name' (string) trader name as registered,
-     *               'address' (string) trader address as registered.
+     * @return array{valid: bool, requestIdentifier: string, name: string, address: string}
+     *         'requestIdentifier' is the consultation ID, proof of the check;
+     *         'name' and 'address' are the trader data as registered.
      *
      * @throws VatNumberViesUnavailableException when VIES cannot answer.
      * @throws PrestaShopException when no usable transport exists at all.
      */
-    public static function checkVat($countryCode, $number, $requester = null, $interactive = false)
+    public static function checkVat(string $countryCode, string $number, ?array $requester = null, bool $interactive = false): array
     {
         $curlAvailable = function_exists('curl_init');
         $soapAvailable = extension_loaded('soap') && !$interactive;
@@ -135,14 +132,14 @@ class VatNumberViesClient
      *
      * @param string $countryCode VIES country code, e.g. 'NL' or 'EL'.
      * @param string $number Number part after the country prefix.
-     * @param array|null $requester See checkVat().
+     * @param array{countryCode:string,number:string}|null $requester See checkVat().
      * @param bool $interactive See checkVat().
      *
-     * @return array Same shape as checkVat().
+     * @return array{valid: bool, requestIdentifier: string, name: string, address: string}
      *
      * @throws VatNumberViesUnavailableException when the REST interface cannot answer.
      */
-    protected static function checkVatRest($countryCode, $number, $requester = null, $interactive = false)
+    protected static function checkVatRest(string $countryCode, string $number, ?array $requester = null, bool $interactive = false): array
     {
         $request = [
             'countryCode' => (string) $countryCode,
@@ -230,21 +227,22 @@ class VatNumberViesClient
      *
      * @param string $countryCode VIES country code, e.g. 'NL' or 'EL'.
      * @param string $number Number part after the country prefix.
-     * @param array|null $requester See checkVat().
+     * @param array{countryCode:string,number:string}|null $requester See checkVat().
      *
-     * @return array Same shape as checkVat().
+     * @return array{valid: bool, requestIdentifier: string, name: string, address: string}
      *
      * @throws VatNumberViesUnavailableException when the SOAP interface cannot answer.
      */
-    protected static function checkVatSoap($countryCode, $number, $requester = null)
+    protected static function checkVatSoap(string $countryCode, string $number, ?array $requester = null): array
     {
         // The WSDL download does not honor SoapClient timeouts, it uses this
-        // ini setting. Narrow it for the call, restore afterwards.
-        $previousTimeout = ini_get('default_socket_timeout');
+        // ini setting. Narrow it for the call, restore afterwards. ini_set()
+        // hands back the old value (false on failure); an empty
+        // "default_socket_timeout =" line in php.ini yields ''.
+        $previousTimeout = ini_set('default_socket_timeout', (string) static::TIMEOUT);
         if ($previousTimeout === false || $previousTimeout === '') {
             $previousTimeout = 60;
         }
-        ini_set('default_socket_timeout', (string) static::TIMEOUT);
         try {
             $client = new SoapClient(static::SOAP_WSDL, [
                 'connection_timeout' => static::CONNECT_TIMEOUT,
@@ -300,11 +298,12 @@ class VatNumberViesClient
     /**
      * Result shape for a number VIES positively rejected.
      *
-     * @param mixed $requestId Consultation ID of the rejecting check, if any.
+     * @param mixed $requestId Consultation ID of the rejecting check, if any;
+     *                         raw from the VIES response.
      *
-     * @return array
+     * @return array{valid: bool, requestIdentifier: string, name: string, address: string}
      */
-    protected static function rejection($requestId)
+    protected static function rejection($requestId): array
     {
         return [
             'valid'             => false,
@@ -315,11 +314,13 @@ class VatNumberViesClient
     }
 
     /**
-     * @param array $data Decoded VIES response body.
+     * Error code of a REST response body, uppercased.
+     *
+     * @param array<mixed> $data Decoded VIES response body.
      *
      * @return string Error code, empty string when none present.
      */
-    protected static function extractErrorCode($data)
+    protected static function extractErrorCode(array $data): string
     {
         if (isset($data['userError']) && is_string($data['userError'])) {
             return strtoupper(trim($data['userError']));
@@ -332,11 +333,13 @@ class VatNumberViesClient
     }
 
     /**
-     * @param mixed $value
+     * Sanitize a consultation ID from a VIES response.
+     *
+     * @param mixed $value Raw value from the response; non-strings give ''.
      *
      * @return string Consultation ID, bounded to the stored column width.
      */
-    protected static function cleanRequestId($value)
+    protected static function cleanRequestId($value): string
     {
         if (!is_string($value)) {
             return '';
@@ -351,11 +354,11 @@ class VatNumberViesClient
      * and strip angle brackets so remote data can never reach a page as
      * markup.
      *
-     * @param mixed $value
+     * @param mixed $value Raw value from the response; non-strings give ''.
      *
      * @return string
      */
-    protected static function cleanTraderString($value)
+    protected static function cleanTraderString($value): string
     {
         if (!is_string($value)) {
             return '';
