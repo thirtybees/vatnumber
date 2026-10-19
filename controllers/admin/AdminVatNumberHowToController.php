@@ -46,8 +46,12 @@ class AdminVatNumberHowToController extends ModuleAdminController
     {
         parent::initContent();
 
+        if (!$this->module instanceof VatNumber) {
+            throw new PrestaShopException('The how-to page needs the vatnumber module instance');
+        }
+        $this->content .= $this->module->renderTabBar('howto');
+
         $this->context->smarty->assign([
-            'vatnumber_config_link' => $this->context->link->getAdminLink('AdminModules', true).'&configure='.$this->module->name,
             'vatnumber_orders_link' => $this->context->link->getAdminLink('AdminOrders', true),
             'vatnumber_addresses_link' => $this->context->link->getAdminLink('AdminAddresses', true),
             'vatnumber_logs_link' => $this->context->link->getAdminLink('AdminLogs', true),

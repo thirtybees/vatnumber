@@ -118,7 +118,7 @@ class VatNumber extends TaxManagerModule
     {
         $this->name = 'vatnumber';
         $this->tab = 'billing_invoicing';
-        $this->version = '2.7.8';
+        $this->version = '2.7.9';
         $this->author = 'thirty bees';
         $this->need_instance = true;
 
@@ -1441,7 +1441,7 @@ class VatNumber extends TaxManagerModule
             $checkResult = $this->processVatNumberCheck();
         }
 
-        return $saveResult.$this->renderExplanationPanel().$this->renderForm($checkResult).$this->renderStatusPanel();
+        return $this->renderTabBar('settings').$saveResult.$this->renderExplanationPanel().$this->renderForm($checkResult).$this->renderStatusPanel();
     }
 
     /**
@@ -1460,23 +1460,54 @@ class VatNumber extends TaxManagerModule
     }
 
     /**
-     * Short introduction at the top of the configuration page, pointing to
-     * the full how-to page in the Localization menu.
+     * Short introduction at the top of the configuration page; the full
+     * explanation is on the how-to tab.
      *
      * @return string
-     * @throws PrestaShopException
      */
     protected function renderExplanationPanel(): string
     {
-        $howToLink = $this->context->link->getAdminLink('AdminVatNumberHowTo', true);
-
         $html = '<div class="panel"><h3><i class="icon icon-info-circle"></i> '.$this->l('How this module works').'</h3>';
         $html .= '<p>'.$this->l('Business customers in another EU country pay no VAT when they provide a valid VAT number (reverse charge). The customer enters the number on their address, the module validates it (first locally, then against VIES, the official EU database), and prices, cart and invoices for that customer switch to 0% VAT.').'</p>';
         $html .= '<p>'.$this->l('Customers from your own country always pay VAT. Spaces and dots in the number are fine, Greek numbers typed with the GR prefix are treated as EL, and Northern Ireland businesses (XI number, GB address) are supported.').'</p>';
-        $html .= '<p><a class="btn btn-default" href="'.Tools::safeOutput($howToLink).'"><i class="icon icon-book"></i> '.$this->l('Read the full how-to: settings, what happens when VIES is down, and where to check a customer').'</a></p>';
         $html .= '</div>';
 
         return $html;
+    }
+
+    /**
+     * Tab bar shared by the module's two back office pages: the settings
+     * (module configuration) and the how-to page.
+     *
+     * @param string $active settings|howto
+     *
+     * @return string
+     * @throws PrestaShopException
+     * @throws SmartyException
+     */
+    public function renderTabBar(string $active): string
+    {
+        $link = $this->context->link;
+        $tabs = [
+            'settings' => [
+                'label' => $this->l('Settings'),
+                'icon' => 'icon-cogs',
+                'url' => $link->getAdminLink('AdminModules', true).'&configure='.$this->name.'&module_name='.$this->name,
+            ],
+            'howto' => [
+                'label' => $this->l('How-to'),
+                'icon' => 'icon-book',
+                'url' => $link->getAdminLink('AdminVatNumberHowTo', true),
+            ],
+        ];
+        $items = [];
+        foreach ($tabs as $key => $tab) {
+            $tab['active'] = $key === $active;
+            $items[] = $tab;
+        }
+        $this->context->smarty->assign('vatnumber_tabs', $items);
+
+        return $this->context->smarty->fetch($this->local_path.'views/templates/admin/tabs.tpl');
     }
 
     /**
@@ -1636,6 +1667,7 @@ class VatNumber extends TaxManagerModule
                         'label'     => $this->l('Always add VAT for customers from:'),
                         'desc'      => $this->l('In EU legislation, this should be the country where the business is located, usually your own country.'),
                         'name'      => 'VATNUMBER_COUNTRY',
+                        'hint'      => $this->l('Customers with an address in this country always pay VAT, even with a valid VAT number. Choose the country where your business is registered.'),
                         'required'  => false,
                         'default_value' => (int) $this->context->country->id,
                         'options'   => [
@@ -1648,6 +1680,7 @@ class VatNumber extends TaxManagerModule
                         'type'      => 'switch',
                         'label'     => $this->l('Check VAT number automatically'),
                         'name'      => 'VATNUMBER_CHECKING',
+                        'hint'      => $this->l('Asks VIES, the EU database, whether a VAT number really exists. Keep this on; switch it off only while testing.'),
                         'is_bool'   => true,
                         'desc'      => $this->l('This uses VIES, the official web service of the European Community. Confirmed numbers are cached locally, so repeated checks need no network access. On web service outages (they have been seen quite frequently), VAT numbers get accepted provisionally to not disrupt the customer, and get re-checked automatically by the scheduled task below. Such events get logged; if you also want to receive email on such events, set \'Minimum severity level\' in Advanced Parameters -> Logs to 3 or lower.'),
                         'values'    => $this->getSwitchValues(),
@@ -1656,6 +1689,7 @@ class VatNumber extends TaxManagerModule
                         'type'      => 'switch',
                         'label'     => $this->l('Exempt only after successful check'),
                         'name'      => 'VATNUMBER_REQUIRE_VALIDATION',
+                        'hint'      => $this->l('When on, a customer pays VAT until VIES has confirmed the number. Turn it off to give the exemption right away and verify the number afterwards.'),
                         'is_bool'   => true,
                         'desc'      => $this->l('Enabled (default): customers keep paying VAT until VIES has confirmed their number. Disabled: customers get the VAT exemption immediately, even while their number is still awaiting verification. Enabled is safer for you, disabled is friendlier for the customer. Only relevant when automatic checking is enabled. Numbers that VIES rejected never get the exemption.'),
                         'values'    => $this->getSwitchValues(),
@@ -1664,12 +1698,14 @@ class VatNumber extends TaxManagerModule
                         'type'      => 'text',
                         'label'     => $this->l('Your own VAT number'),
                         'name'      => 'VATNUMBER_OWN_NUMBER',
+                        'hint'      => $this->l('The VAT number of your shop with country code. Fill it in to receive a consultation ID from VIES as proof of every check.'),
                         'desc'      => $this->l('The VAT number of this shop, including country prefix. When set, it is sent along with every VIES check and VIES then returns a consultation ID: the formal proof of the check that tax authorities ask for. Leave empty to check without proof IDs.'),
                     ],
                     [
                         'type'      => 'date',
                         'label'     => $this->l('Only verify numbers used since'),
                         'name'      => 'VATNUMBER_VERIFY_SINCE',
+                        'hint'      => $this->l('Numbers of customers without an order or address change since this date are not verified. Use it after an upgrade to skip years of old addresses.'),
                         'desc'      => $this->l('Date in YYYY-MM-DD format, or empty to verify everything. Queued numbers of customers with no address change and no order since this date are dropped from the verification queue, immediately when you save and again on every scheduled run. Useful after upgrading a shop with years of old addresses. Dropped numbers are simply checked live again if such a customer ever returns.'),
                     ],
                 ],
@@ -1702,6 +1738,7 @@ class VatNumber extends TaxManagerModule
                         'type'      => 'text',
                         'label'     => $this->l('VAT number'),
                         'name'      => 'CHECK_VATNUMBER',
+                        'hint'      => $this->l('Type a VAT number with country code to check it at VIES right now. The result counts immediately for every customer who uses this number.'),
                         'desc'      => $this->l('Use this to verify a customer\'s VAT number by hand: for example after a log entry says VIES rejected a number, before you refund or re-invoice VAT, or when a customer claims their number is valid after all. The result is stored in the local cache, so a number confirmed here immediately counts as verified for that customer in the shop.')
                             .'<br/>'
                             .sprintf($this->l('Enter the full number including the two letter country prefix, for example %s. Spaces, dots and dashes are fine. Use EL or GR for Greece and XI for Northern Ireland.'), 'NL822090313B01')

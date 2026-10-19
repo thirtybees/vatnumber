@@ -20,7 +20,6 @@
     <h3><i class="icon icon-info-circle"></i> {l s='VAT numbers: how it works' mod='vatnumber'}</h3>
     <p>{l s='Business customers in another EU country pay no VAT when they provide a valid VAT number (reverse charge). The customer enters the number on their address, the module validates it (first locally, then against VIES, the official EU database), and prices, cart and invoices for that customer switch to 0% VAT.' mod='vatnumber'}</p>
     <p>{l s='Customers from your own country always pay VAT. Spaces and dots in the number are fine, Greek numbers typed with the GR prefix are treated as EL, and Northern Ireland businesses (XI number, GB address) are supported.' mod='vatnumber'}</p>
-    <p><a class="btn btn-default" href="{$vatnumber_config_link|escape:'html':'UTF-8'}"><i class="icon icon-cogs"></i> {l s='Open the module settings' mod='vatnumber'}</a></p>
 </div>
 
 <div class="panel">
