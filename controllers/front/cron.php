@@ -92,7 +92,7 @@ class VatnumberCronModuleFrontController extends ModuleFrontController
             } catch (Exception $e) {
                 // Log the full cause; the HTTP response stays generic, the
                 // caller is a scheduler, not a debugger.
-                PrestaShopLogger::addLog('vatnumber cron: run failed: '.$e->getMessage(), 3);
+                VatNumber::log('Background verification: the run failed: %s', 3, $e->getMessage());
                 $httpCode = 500;
                 $body = ['error' => 'Run failed, see the shop log for details'];
             }
@@ -101,7 +101,7 @@ class VatnumberCronModuleFrontController extends ModuleFrontController
                 Db::getInstance()->getValue('SELECT RELEASE_LOCK(\''.pSQL($lockName).'\')');
             } catch (Exception $e) {
                 // The connection is gone; MySQL releases the lock with it.
-                PrestaShopLogger::addLog('vatnumber cron: lock release failed: '.$e->getMessage(), 2);
+                VatNumber::log('Background verification: releasing the run lock failed: %s', 2, $e->getMessage());
             }
         }
 

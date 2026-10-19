@@ -94,6 +94,20 @@ class VatNumber extends TaxManagerModule
     /** Entropy floor for the generated cron token. */
     const MIN_TOKEN_DISTINCT_CHARS = 8;
 
+    /**
+     * Menu name of the how-to page per language ISO code. Tab names are
+     * stored per language in the database, so they cannot come from the
+     * translation files; languages not listed get the English name.
+     */
+    const HOW_TO_TAB_NAMES = [
+        'en' => 'VAT numbers how-to',
+        'nl' => 'Btw-nummers uitleg',
+        'de' => 'USt-IdNr. Anleitung',
+        'fr' => 'Numeros de TVA : guide',
+        'es' => 'Numeros de IVA: guia',
+        'it' => 'Partite IVA: guida',
+    ];
+
     /** @var array Controllers this module ships. */
     public $controllers = ['cron'];
 
@@ -104,7 +118,7 @@ class VatNumber extends TaxManagerModule
     {
         $this->name = 'vatnumber';
         $this->tab = 'billing_invoicing';
-        $this->version = '2.7.7';
+        $this->version = '2.7.8';
         $this->author = 'thirty bees';
         $this->need_instance = true;
 
@@ -159,18 +173,18 @@ class VatNumber extends TaxManagerModule
                 && Configuration::updateValue('VATNUMBER_VERIFY_SINCE', '')
                 && static::setGlobal('VATNUMBER_CRON_TOKEN', static::generateCronToken());
         } catch (Exception $e) {
-            PrestaShopLogger::addLog('vatnumber: install failed: '.$e->getMessage(), 3);
+            static::log('Install failed: %s', 3, $e->getMessage());
             $this->_errors[] = $e->getMessage();
             $ok = false;
         }
         if (!$ok) {
             if (!$this->_errors) {
-                $this->_errors[] = 'One of the installation steps failed, see the shop log';
+                $this->_errors[] = $this->l('One of the installation steps failed, see the shop log');
             }
             try {
                 $this->uninstall($tableExisted);
             } catch (Exception $e) {
-                PrestaShopLogger::addLog('vatnumber: rollback after failed install failed too: '.$e->getMessage(), 3);
+                static::log('Undoing the failed install failed too: %s', 3, $e->getMessage());
                 $this->_errors[] = $e->getMessage();
             }
         }
@@ -212,14 +226,29 @@ class VatNumber extends TaxManagerModule
         $tab->module = $this->name;
         $tab->id_parent = (int) Tab::getIdFromClassName('AdminParentLocalization');
         $tab->active = true;
-        foreach (Language::getLanguages(false) as $language) {
-            $tab->name[(int) $language['id_lang']] = 'VAT numbers how-to';
-        }
+        $tab->name = static::getHowToTabNames();
         // Tab::add() returns the result of initAccess(), which is false
         // without an employee context even though the tab row was created.
         $tab->add();
 
         return (bool) $tab->id;
+    }
+
+    /**
+     * Menu names of the how-to page for every installed language.
+     *
+     * @return array<int, string> Name per language id.
+     * @throws PrestaShopException
+     */
+    public static function getHowToTabNames(): array
+    {
+        $names = [];
+        foreach (Language::getLanguages(false) as $language) {
+            $iso = strtolower((string) $language['iso_code']);
+            $names[(int) $language['id_lang']] = static::HOW_TO_TAB_NAMES[$iso] ?? static::HOW_TO_TAB_NAMES['en'];
+        }
+
+        return $names;
     }
 
     /**
@@ -252,6 +281,26 @@ class VatNumber extends TaxManagerModule
     protected static function translate(string $string): string
     {
         return Translate::getModuleTranslation('vatnumber', $string, 'vatnumber');
+    }
+
+    /**
+     * Write a message to the shop log, translated into the language of the
+     * current request: the employee's language in the back office, the
+     * shop's default language for the scheduled task. The "vatnumber:"
+     * prefix is never translated, so searching the log for it always works.
+     * Technical details passed as arguments (exception texts) stay as they
+     * are.
+     *
+     * @param string $message English source text with sprintf placeholders.
+     * @param int $severity 1 informative, 2 warning, 3 error, 4 major issue.
+     * @param mixed ...$args Values for the placeholders.
+     *
+     * @return void
+     * @throws PrestaShopException
+     */
+    public static function log(string $message, int $severity, ...$args): void
+    {
+        PrestaShopLogger::addLog('vatnumber: '.vsprintf(static::translate($message), $args), $severity);
     }
 
     /**
@@ -533,7 +582,7 @@ class VatNumber extends TaxManagerModule
         }
         $error = static::validateNumber($address);
         if (is_string($error)) {
-            PrestaShopLogger::addLog('vatnumber: back office save of address '.(int) $address->id.' with a VAT number that fails validation: '.$error, 3);
+            static::log('Address %d was saved in the back office with a VAT number that fails validation: %s', 3, (int) $address->id, $error);
             if ($controller instanceof AdminController) {
                 $controller->errors[] = sprintf($this->l('VAT number check: %s'), $error);
             }
@@ -570,7 +619,7 @@ class VatNumber extends TaxManagerModule
 
             return $this->renderOrderVatPanel($order, $vatNumber);
         } catch (Exception $e) {
-            PrestaShopLogger::addLog('vatnumber: order panel failed for order '.$idOrder.': '.$e->getMessage(), 3);
+            static::log('The VAT panel of order %d could not be shown: %s', 3, $idOrder, $e->getMessage());
 
             return '<div class="row"><div class="col-lg-12"><div class="panel"><h3><i class="icon icon-euro"></i> '.$this->l('VAT exemption').'</h3>'
                 .'<div class="alert alert-danger">'.sprintf($this->l('Could not display the VAT status: %s'), Tools::safeOutput($e->getMessage())).'</div></div></div></div>';
@@ -971,7 +1020,7 @@ class VatNumber extends TaxManagerModule
             if (!$check) {
                 $recent = VatNumberCheck::countRecentByCustomer($idCustomer, static::CUSTOMER_RATE_WINDOW_SECONDS);
                 if ($idCustomer && $recent >= static::CUSTOMER_RATE_LIMIT) {
-                    PrestaShopLogger::addLog('vatnumber: customer '.(int) $idCustomer.' exceeded the VAT number check rate limit', 3);
+                    static::log('Customer %d entered too many different VAT numbers in a short time and was asked to try again later', 3, (int) $idCustomer);
 
                     return [static::translate('Too many different VAT numbers were entered in a short time. Please try again later.')];
                 }
@@ -979,7 +1028,7 @@ class VatNumber extends TaxManagerModule
                     // Anonymous flood (registration or guest checkout): the
                     // number is accepted, but VIES is not asked on its
                     // behalf; the cron verifies it.
-                    PrestaShopLogger::addLog('vatnumber: anonymous VAT number check rate limit reached, '.$normalized.' queued instead of checked live', 2);
+                    static::log('Too many VAT number checks by visitors who are not logged in; %s was queued for the scheduled task instead of checked live', 2, $normalized);
                     static::acceptProvisionally(null, $normalized, $countryCode, $idAddress, 0);
 
                     return [];
@@ -999,7 +1048,7 @@ class VatNumber extends TaxManagerModule
             } catch (VatNumberViesUnavailableException $e) {
                 static::openBreaker();
                 static::acceptProvisionally($check, $normalized, $countryCode, $idAddress, $idCustomer);
-                PrestaShopLogger::addLog('vatnumber: VIES unavailable, VAT number '.$normalized.' accepted provisionally. Reason: '.$e->getMessage(), 3);
+                static::log('VIES could not be reached, VAT number %s was accepted provisionally. Reason: %s', 3, $normalized, $e->getMessage());
 
                 return [];
             } catch (PrestaShopException $e) {
@@ -1008,7 +1057,7 @@ class VatNumber extends TaxManagerModule
                 // severity: checking is effectively disabled until fixed.
                 static::openBreaker();
                 static::acceptProvisionally($check, $normalized, $countryCode, $idAddress, $idCustomer);
-                PrestaShopLogger::addLog('vatnumber: VAT number checking is broken, '.$normalized.' accepted provisionally. Fix this server problem: '.$e->getMessage(), 4);
+                static::log('VAT numbers cannot be checked on this server, %s was accepted provisionally. Fix this server problem: %s', 4, $normalized, $e->getMessage());
 
                 return [];
             }
@@ -1025,7 +1074,7 @@ class VatNumber extends TaxManagerModule
         } catch (Exception $e) {
             // Log the full cause; show the customer only a generic message.
             // Raw exception text can contain database details.
-            PrestaShopLogger::addLog('vatnumber: VAT number check failed for '.$normalized.': '.$e->getMessage(), 3);
+            static::log('The check of VAT number %s failed: %s', 3, $normalized, $e->getMessage());
 
             return [static::translate('Failed to validate the VAT number. Please try again later.')];
         }
@@ -1139,7 +1188,7 @@ class VatNumber extends TaxManagerModule
         $malformed = [];
         foreach ($rows as $row) {
             if (microtime(true) > $deadline) {
-                PrestaShopLogger::addLog('vatnumber cron: time budget exhausted, remaining numbers are checked next run', 1);
+                static::log('Background verification: time budget used up, the remaining numbers are checked in the next run', 1);
                 break;
             }
             if (!static::checkQueuedRow($row, $summary, $rejected, $malformed)) {
@@ -1181,7 +1230,7 @@ class VatNumber extends TaxManagerModule
             $allNumbers = VatNumberCheck::getAddressNumbers(null, true);
             $result['purged'] = VatNumberCheck::purgeOrphaned($allNumbers);
         } catch (Exception $e) {
-            PrestaShopLogger::addLog('vatnumber cron: purge skipped: '.$e->getMessage(), 3);
+            static::log('Background verification: cleaning up old results was skipped: %s', 3, $e->getMessage());
         }
 
         try {
@@ -1194,7 +1243,7 @@ class VatNumber extends TaxManagerModule
             $liveNumbers = VatNumberCheck::getAddressNumbers($verifySince);
             $result['queued'] = VatNumberCheck::queueMissing($liveNumbers, $limit * static::CRON_QUEUE_AHEAD_FACTOR);
         } catch (Exception $e) {
-            PrestaShopLogger::addLog('vatnumber cron: queue maintenance skipped: '.$e->getMessage(), 3);
+            static::log('Background verification: updating the queue was skipped: %s', 3, $e->getMessage());
         }
 
         return $result;
@@ -1227,7 +1276,7 @@ class VatNumber extends TaxManagerModule
                 return true;
             }
         } catch (Exception $e) {
-            PrestaShopLogger::addLog('vatnumber cron: settling malformed '.$number.' failed: '.$e->getMessage(), 3);
+            static::log('Background verification: marking the malformed number %s as invalid failed: %s', 3, $number, $e->getMessage());
             $summary['failed']++;
             static::rotateRow($row);
 
@@ -1240,7 +1289,7 @@ class VatNumber extends TaxManagerModule
             // No transport at all (no curl, no soap): every row would fail
             // the same way. Say it once, loudly, and stop.
             static::openBreaker();
-            PrestaShopLogger::addLog('vatnumber cron: VAT number checking is broken, stopping the run. Fix this server problem: '.$e->getMessage(), 4);
+            static::log('Background verification: VAT numbers cannot be checked on this server, the run was stopped. Fix this server problem: %s', 4, $e->getMessage());
             $summary['vies_down'] = true;
 
             return false;
@@ -1250,12 +1299,12 @@ class VatNumber extends TaxManagerModule
             // state being down cannot block the queue head forever.
             static::openBreaker();
             static::rotateRow($row);
-            PrestaShopLogger::addLog('vatnumber cron: VIES unavailable, stopping this run. Reason: '.$e->getMessage(), 2);
+            static::log('Background verification: VIES could not be reached, the run was stopped. Reason: %s', 2, $e->getMessage());
             $summary['vies_down'] = true;
 
             return false;
         } catch (Exception $e) {
-            PrestaShopLogger::addLog('vatnumber cron: check of '.$number.' failed: '.$e->getMessage(), 3);
+            static::log('Background verification: the check of %s failed: %s', 3, $number, $e->getMessage());
             $summary['failed']++;
             static::rotateRow($row);
 
@@ -1273,7 +1322,7 @@ class VatNumber extends TaxManagerModule
                 $rejected[] = $number;
             }
         } catch (Exception $e) {
-            PrestaShopLogger::addLog('vatnumber cron: saving result for '.$number.' failed: '.$e->getMessage(), 3);
+            static::log('Background verification: saving the result for %s failed: %s', 3, $number, $e->getMessage());
             $summary['failed']++;
             static::rotateRow($row);
         }
@@ -1300,7 +1349,7 @@ class VatNumber extends TaxManagerModule
         try {
             VatNumberCheck::touchRow((int) $row['id_vatnumber_check']);
         } catch (Exception $e) {
-            PrestaShopLogger::addLog('vatnumber cron: could not rotate '.$row['vat_number'].': '.$e->getMessage(), 3);
+            static::log('Background verification: %s could not be moved to the back of the queue: %s', 3, $row['vat_number'], $e->getMessage());
         }
     }
 
@@ -1318,22 +1367,30 @@ class VatNumber extends TaxManagerModule
     protected static function logRejections(array $rejected, array $malformed): void
     {
         if ($rejected) {
-            $shown = array_slice($rejected, 0, static::MAX_REJECTED_IN_LOG);
-            $message = 'vatnumber cron: VIES rejected VAT number(s) '.implode(', ', $shown);
-            if (count($rejected) > count($shown)) {
-                $message .= sprintf(' and %d more', count($rejected) - count($shown));
-            }
-            $message .= '. Review the orders of these customers, VAT may have to be re-invoiced.';
-            PrestaShopLogger::addLog($message, 3);
+            static::log('Background verification: VIES rejected VAT number(s) %s. Review the orders of these customers, VAT may have to be re-invoiced.', 3, static::describeNumberList($rejected));
         }
         if ($malformed) {
-            $shown = array_slice($malformed, 0, static::MAX_REJECTED_IN_LOG);
-            $message = 'vatnumber cron: '.count($malformed).' stored number(s) do not match any EU VAT number format and were marked invalid without asking VIES: '.implode(', ', $shown);
-            if (count($malformed) > count($shown)) {
-                $message .= sprintf(' and %d more', count($malformed) - count($shown));
-            }
-            PrestaShopLogger::addLog($message, 2);
+            static::log('Background verification: %d stored number(s) do not match any EU VAT number format and were marked invalid without asking VIES: %s', 2, count($malformed), static::describeNumberList($malformed));
         }
+    }
+
+    /**
+     * Comma separated list of at most MAX_REJECTED_IN_LOG numbers, followed
+     * by how many were left out, so one log line stays readable.
+     *
+     * @param string[] $numbers
+     *
+     * @return string
+     */
+    protected static function describeNumberList(array $numbers): string
+    {
+        $shown = array_slice($numbers, 0, static::MAX_REJECTED_IN_LOG);
+        $list = implode(', ', $shown);
+        if (count($numbers) > count($shown)) {
+            $list .= ' '.sprintf(static::translate('and %d more'), count($numbers) - count($shown));
+        }
+
+        return $list;
     }
 
     /**
@@ -1478,7 +1535,7 @@ class VatNumber extends TaxManagerModule
                     $pending
                 ));
             } catch (Exception $e) {
-                PrestaShopLogger::addLog('vatnumber: applying the verification start date failed: '.$e->getMessage(), 3);
+                static::log('Applying the verification start date failed: %s', 3, $e->getMessage());
 
                 return $this->displayConfirmation($this->l('Settings updated. The start date will be applied on the next scheduled run.'));
             }
@@ -1778,7 +1835,7 @@ class VatNumber extends TaxManagerModule
         } catch (VatNumberViesUnavailableException $e) {
             return '<div class="alert alert-warning">'.sprintf($this->l('VIES could not be reached (%s). Try again later.'), Tools::safeOutput($e->getMessage())).'</div>';
         } catch (Exception $e) {
-            PrestaShopLogger::addLog('vatnumber: manual check of '.$vatnumber.' failed: '.$e->getMessage(), 3);
+            static::log('The manual check of %s failed: %s', 3, $vatnumber, $e->getMessage());
 
             return '<div class="alert alert-danger">'.sprintf($this->l('VAT number check failed: %s'), Tools::safeOutput($e->getMessage())).'</div>';
         }
