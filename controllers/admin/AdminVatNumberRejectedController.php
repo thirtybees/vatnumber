@@ -56,9 +56,10 @@ class AdminVatNumberRejectedController extends ModuleAdminController
                 'title' => $this->l('VAT number'),
             ],
             'country_code' => [
-                'title' => $this->l('Country'),
-                'align' => 'center',
-                'class' => 'fixed-width-xs',
+                'title'    => $this->l('Country'),
+                'align'    => 'center',
+                'class'    => 'fixed-width-xs',
+                'callback' => 'renderCountry',
             ],
             'source' => [
                 'title'       => $this->l('Reason'),
@@ -122,6 +123,20 @@ class AdminVatNumberRejectedController extends ModuleAdminController
     {
         parent::initToolbar();
         unset($this->toolbar_btn['new']);
+    }
+
+    /**
+     * List callback: the VIES country code, or '--' for a number whose first
+     * two characters are no country code at all (impossible format).
+     *
+     * @param string|null $value Raw country_code column.
+     * @param array<string,mixed> $row
+     *
+     * @return string
+     */
+    public function renderCountry($value, $row): string
+    {
+        return in_array((string) $value, VatNumber::getPrefixIntracomVAT(), true) || $value === 'XI' ? (string) $value : '--';
     }
 
     /**

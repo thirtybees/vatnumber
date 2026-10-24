@@ -128,7 +128,7 @@ class VatNumber extends TaxManagerModule
     {
         $this->name = 'vatnumber';
         $this->tab = 'billing_invoicing';
-        $this->version = '2.7.11';
+        $this->version = '2.7.12';
         $this->author = 'thirty bees';
         $this->need_instance = true;
 
