@@ -44,9 +44,12 @@ class AdminVatNumberRejectedController extends ModuleAdminController
         $this->_select = 'CONCAT(c.`firstname`, \' \', c.`lastname`) AS `customer_name`, c.`company` AS `customer_company`,'
             .' (SELECT MAX(o.`id_order`) FROM `'._DB_PREFIX_.'orders` o WHERE a.`id_address` > 0 AND o.`id_address_invoice` = a.`id_address`) AS `last_order`';
         $this->_join = 'LEFT JOIN `'._DB_PREFIX_.'customer` c ON c.`id_customer` = a.`id_customer`';
-        $this->_where = 'AND a.`status` = \''.pSQL(VatNumberCheck::STATUS_INVALID).'\'';
 
+        // The module, and with it its classes, is only loaded by the parent
+        // constructor.
         parent::__construct();
+
+        $this->_where = 'AND a.`status` = \''.pSQL(VatNumberCheck::STATUS_INVALID).'\'';
 
         $this->fields_list = [
             'vat_number' => [
