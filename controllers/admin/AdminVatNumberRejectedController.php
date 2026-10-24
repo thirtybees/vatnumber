@@ -41,9 +41,13 @@ class AdminVatNumberRejectedController extends ModuleAdminController
         $this->list_no_link = true;
         $this->_defaultOrderBy = 'date_upd';
         $this->_defaultOrderWay = 'DESC';
-        $this->_select = 'CONCAT(c.`firstname`, \' \', c.`lastname`) AS `customer_name`, c.`company` AS `customer_company`,'
+        // The company usually lives on the address; the customer account
+        // only has one when B2B mode is on.
+        $this->_select = 'CONCAT(c.`firstname`, \' \', c.`lastname`) AS `customer_name`,'
+            .' COALESCE(NULLIF(ad.`company`, \'\'), c.`company`) AS `customer_company`,'
             .' (SELECT MAX(o.`id_order`) FROM `'._DB_PREFIX_.'orders` o WHERE a.`id_address` > 0 AND o.`id_address_invoice` = a.`id_address`) AS `last_order`';
-        $this->_join = 'LEFT JOIN `'._DB_PREFIX_.'customer` c ON c.`id_customer` = a.`id_customer`';
+        $this->_join = 'LEFT JOIN `'._DB_PREFIX_.'customer` c ON c.`id_customer` = a.`id_customer`'
+            .' LEFT JOIN `'._DB_PREFIX_.'address` ad ON ad.`id_address` = a.`id_address`';
 
         // The module, and with it its classes, is only loaded by the parent
         // constructor.
