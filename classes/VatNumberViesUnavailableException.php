@@ -36,4 +36,49 @@ if (!defined('_TB_VERSION_')) {
  */
 class VatNumberViesUnavailableException extends Exception
 {
+    /** @var string VIES error code (for example MS_MAX_CONCURRENT_REQ), empty when there was none. */
+    protected $viesCode;
+
+    /**
+     * @param string $message
+     * @param string $viesCode VIES error code, empty when the failure had none
+     *                         (network error, HTTP error, unreadable answer).
+     */
+    public function __construct(string $message, string $viesCode = '')
+    {
+        parent::__construct($message);
+        $this->viesCode = $viesCode;
+    }
+
+    /**
+     * @return string VIES error code, empty when there was none.
+     */
+    public function getViesCode(): string
+    {
+        return $this->viesCode;
+    }
+
+    /**
+     * True when VIES answered that it is too busy right now: too many
+     * requests at the same time, for one member state or for VIES as a
+     * whole. Waiting a moment and asking again usually works.
+     *
+     * @return bool
+     */
+    public function isBusy(): bool
+    {
+        return strpos($this->viesCode, 'MAX_CONCURRENT_REQ') !== false;
+    }
+
+    /**
+     * True when the problem lies with the database of one member state
+     * (busy or down). Other countries can still be checked, and the SOAP
+     * interface would ask the same database.
+     *
+     * @return bool
+     */
+    public function isMemberStateProblem(): bool
+    {
+        return strpos($this->viesCode, 'MS_') === 0;
+    }
 }

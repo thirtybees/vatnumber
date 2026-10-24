@@ -57,6 +57,9 @@ class VatNumberViesClient
     const INTERACTIVE_CONNECT_TIMEOUT = 3;
     const INTERACTIVE_TIMEOUT = 5;
 
+    /** Pause before the one retry after a "too many requests" answer. */
+    const BUSY_RETRY_SECONDS = 2;
+
     /** Longest consultation ID we store; VIES issues ~16 characters. */
     const REQUEST_ID_MAX_LENGTH = 64;
 
@@ -113,13 +116,29 @@ class VatNumberViesClient
         try {
             return static::checkVatRest($countryCode, $number, $requester, $interactive);
         } catch (VatNumberViesUnavailableException $restException) {
-            if (!$soapAvailable) {
+            if ($restException->isBusy() && !$interactive) {
+                // Too many requests at the same time: a short pause usually
+                // frees a slot. A waiting customer gets no pause; their
+                // number is accepted provisionally and the cron retries.
+                sleep(static::BUSY_RETRY_SECONDS);
+                try {
+                    return static::checkVatRest($countryCode, $number, $requester, $interactive);
+                } catch (VatNumberViesUnavailableException $retryException) {
+                    $restException = $retryException;
+                }
+            }
+            // SOAP asks the same member state database, so after a busy or
+            // member state answer it would only add load and fail the same way.
+            if (!$soapAvailable || $restException->isBusy() || $restException->isMemberStateProblem()) {
                 throw $restException;
             }
             try {
                 $result = static::checkVatSoap($countryCode, $number, $requester);
             } catch (VatNumberViesUnavailableException $soapException) {
-                throw new VatNumberViesUnavailableException('REST: '.$restException->getMessage().'; SOAP fallback: '.$soapException->getMessage());
+                throw new VatNumberViesUnavailableException(
+                    'REST: '.$restException->getMessage().'; SOAP fallback: '.$soapException->getMessage(),
+                    $soapException->getViesCode() !== '' ? $soapException->getViesCode() : $restException->getViesCode()
+                );
             }
             PrestaShopLogger::addLog('vatnumber: VIES REST interface failed ('.$restException->getMessage().'), the SOAP fallback answered instead.', 1);
 
@@ -199,7 +218,7 @@ class VatNumberViesClient
 
             // Rate limits, member state outages, and any code we do not
             // know: never reject a customer over these.
-            throw new VatNumberViesUnavailableException('VIES service unavailable: '.$errorCode);
+            throw new VatNumberViesUnavailableException('VIES service unavailable: '.$errorCode, $errorCode);
         }
 
         if ($httpCode !== 200) {
@@ -277,7 +296,7 @@ class VatNumberViesClient
             // Outage codes and anything unrecognized (WSDL fetch failures,
             // HTTP errors) count as "could not be asked", never as a
             // rejection of the customer's number.
-            throw new VatNumberViesUnavailableException('VIES SOAP request failed: '.$fault->getMessage());
+            throw new VatNumberViesUnavailableException('VIES SOAP request failed: '.$fault->getMessage(), preg_match('/^[A-Z_]+$/', $code) ? $code : '');
         } finally {
             ini_set('default_socket_timeout', (string) $previousTimeout);
         }

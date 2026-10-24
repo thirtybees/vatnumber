@@ -105,6 +105,9 @@ class VatNumberCheck extends ObjectModel
     /** @var array<string, string|null> Per-request memo for getStatus(), avoids repeated queries. */
     protected static $statusCache = [];
 
+    /** @var array<string, array<int, array{id_address: int, id_customer: int, deleted: bool}>>|null Per-request memo for getAddressMap(). */
+    protected static $addressMap = null;
+
     /**
      * @var array
      */
@@ -250,6 +253,7 @@ class VatNumberCheck extends ObjectModel
     public static function recordResult(string $normalizedNumber, string $countryCode, string $status, string $source, string $requestId = '', string $traderName = '', string $traderAddress = '', int $idAddress = 0, int $idCustomer = 0): VatNumberCheck
     {
         $check = static::findByNumber($normalizedNumber);
+        $previousStatus = $check ? (string) $check->status : null;
         if (!$check) {
             $check = new VatNumberCheck();
             $check->vat_number = $normalizedNumber;
@@ -283,7 +287,42 @@ class VatNumberCheck extends ObjectModel
         }
         static::$statusCache[$normalizedNumber] = $status;
 
+        if ($previousStatus !== $status) {
+            static::announceStatusChange($normalizedNumber, $previousStatus, $status, $source);
+        }
+
         return $check;
+    }
+
+    /**
+     * Tell other modules that the status of a number changed, through the
+     * hook actionVatNumberStatusUpdate. tborderflags uses it to re-evaluate
+     * the open orders that carry the number. A failing listener is logged
+     * and never undoes or blocks the stored result.
+     *
+     * Hook parameters: vat_number (normalized), old_status (null for a new
+     * number), new_status, source; statuses are the STATUS_* constants.
+     *
+     * @param string $normalizedNumber
+     * @param string|null $oldStatus
+     * @param string $newStatus
+     * @param string $source One of the SOURCE_* constants.
+     *
+     * @return void
+     * @throws PrestaShopException
+     */
+    protected static function announceStatusChange(string $normalizedNumber, ?string $oldStatus, string $newStatus, string $source): void
+    {
+        try {
+            Hook::exec('actionVatNumberStatusUpdate', [
+                'vat_number' => $normalizedNumber,
+                'old_status' => $oldStatus,
+                'new_status' => $newStatus,
+                'source'     => $source,
+            ]);
+        } catch (Exception $e) {
+            VatNumber::log('A module listening to VAT number status changes failed for %s: %s', 3, $normalizedNumber, $e->getMessage());
+        }
     }
 
     /**
@@ -535,6 +574,116 @@ class VatNumberCheck extends ObjectModel
         }
 
         return array_keys($numbers);
+    }
+
+    /**
+     * Addresses carrying a VAT number, newest first, keyed by normalized
+     * number. The address table is scanned once per request; call
+     * forgetAddressMap() after changing addresses.
+     *
+     * @return array<string, array<int, array{id_address: int, id_customer: int, deleted: bool}>>
+     * @throws PrestaShopException
+     */
+    protected static function getAddressMap(): array
+    {
+        if (static::$addressMap === null) {
+            $rows = Db::getInstance()->executeS('SELECT a.`id_address`, a.`id_customer`, a.`vat_number`, a.`deleted` FROM `'._DB_PREFIX_.'address` a WHERE a.`vat_number` != \'\' ORDER BY a.`id_address` DESC');
+            if ($rows === false) {
+                throw new PrestaShopException('Failed to read VAT numbers from the address table: '.Db::getInstance()->getMsgError());
+            }
+            $map = [];
+            foreach ($rows as $row) {
+                $normalized = static::normalize($row['vat_number']);
+                if (strlen($normalized) < 4) {
+                    continue;
+                }
+                $map[$normalized][] = [
+                    'id_address'  => (int) $row['id_address'],
+                    'id_customer' => (int) $row['id_customer'],
+                    'deleted'     => (bool) $row['deleted'],
+                ];
+            }
+            static::$addressMap = $map;
+        }
+
+        return static::$addressMap;
+    }
+
+    /**
+     * Addresses on which a number appears, newest first.
+     *
+     * @param string $normalizedNumber
+     * @param bool $liveOnly Skip soft deleted addresses (the historical
+     *                       copies orders point at).
+     *
+     * @return array<int, array{id_address: int, id_customer: int, deleted: bool}>
+     * @throws PrestaShopException
+     */
+    public static function findAddresses(string $normalizedNumber, bool $liveOnly): array
+    {
+        $map = static::getAddressMap();
+        $found = isset($map[$normalizedNumber]) ? $map[$normalizedNumber] : [];
+        if ($liveOnly) {
+            $found = array_values(array_filter($found, function (array $address): bool {
+                return !$address['deleted'];
+            }));
+        }
+
+        return $found;
+    }
+
+    /**
+     * The address a number is best linked to: the newest live one, else the
+     * newest historical one.
+     *
+     * @param string $normalizedNumber
+     *
+     * @return array{id_address: int, id_customer: int, deleted: bool}|null
+     * @throws PrestaShopException
+     */
+    public static function findPrimaryAddress(string $normalizedNumber): ?array
+    {
+        $all = static::findAddresses($normalizedNumber, false);
+        foreach ($all as $address) {
+            if (!$address['deleted']) {
+                return $address;
+            }
+        }
+
+        return $all ? $all[0] : null;
+    }
+
+    /**
+     * Drop the cached address map, after addresses were changed.
+     *
+     * @return void
+     */
+    public static function forgetAddressMap(): void
+    {
+        static::$addressMap = null;
+    }
+
+    /**
+     * Number of rows with a status.
+     *
+     * @param string $status One of the STATUS_* constants.
+     *
+     * @return int
+     * @throws PrestaShopException
+     */
+    public static function countByStatus(string $status): int
+    {
+        $count = Db::getInstance()->getValue(
+            (new DbQuery())
+                ->select('COUNT(*)')
+                ->from(static::$definition['table'])
+                ->where('`status` = \''.pSQL($status).'\'')
+        );
+        if ($count === false) {
+            throw new PrestaShopException('Failed to count VAT number checks: '.Db::getInstance()->getMsgError());
+        }
+
+        return (int) $count;
     }
 
     /**
