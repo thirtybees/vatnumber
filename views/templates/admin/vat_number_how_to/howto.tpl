@@ -49,6 +49,16 @@
                 <td>{l s='On is safer for you, off is friendlier for the customer' mod='vatnumber'}</td>
             </tr>
             <tr>
+                <td>{l s='Also check numbers from your own country' mod='vatnumber'}</td>
+                <td>{l s='Domestic numbers are confirmed by VIES on address save too, so a non-existing number cannot be saved.' mod='vatnumber'}</td>
+                <td>{l s='On when a wrong number causes trouble in your accounting' mod='vatnumber'}</td>
+            </tr>
+            <tr>
+                <td>{l s='Remove rejected numbers from addresses' mod='vatnumber'}</td>
+                <td>{l s='A number VIES rejects is removed from the customer address; orders already placed keep their address as it was.' mod='vatnumber'}</td>
+                <td>{l s='On when rejected numbers must not reach invoices' mod='vatnumber'}</td>
+            </tr>
+            <tr>
                 <td>{l s='Your own VAT number' mod='vatnumber'}</td>
                 <td>{l s='Sent along with every check; VIES then returns a consultation ID, the formal proof of the check.' mod='vatnumber'}</td>
                 <td>{l s='Fill in' mod='vatnumber'}</td>
@@ -68,6 +78,7 @@
     <ul>
         <li>{l s='The number is accepted provisionally (its format was already checked) and marked as awaiting verification. The customer is never blocked.' mod='vatnumber'}</li>
         <li>{l s='For 5 minutes no new VIES requests are sent, so your server IP does not get rate limited.' mod='vatnumber'}</li>
+        <li>{l s='When VIES or the database of one country is busy (too many requests at the same time), the module waits two seconds and asks once more. A busy country is skipped by the scheduled task until the next run; the other countries are checked as usual.' mod='vatnumber'}</li>
         <li>{l s='The scheduled task re-checks the number later. If VIES then rejects it, you get a log entry and the exemption stops for future orders; orders already placed must be reviewed and re-invoiced with VAT yourself.' mod='vatnumber'}</li>
         <li>{l s='Want these events by email? Set the minimum severity level to 3 in Advanced Parameters > Logs.' mod='vatnumber'}</li>
     </ul>
@@ -98,6 +109,10 @@
             <b>{l s='The address' mod='vatnumber'}</b> ({l s='answers: what is the current number?' mod='vatnumber'}):
             {l s='the VAT number always lives on the customer address, not on the customer card. Open it under' mod='vatnumber'} <a href="{$vatnumber_addresses_link|escape:'html':'UTF-8'}">{l s='Customers > Addresses' mod='vatnumber'}</a>.
             {l s='What is stored here decides the exemption of new orders; existing orders keep their own copy of the address as it was at the time of ordering. Saving an address with a wrong number in the back office shows a warning; the exemption is refused as long as the number is wrong.' mod='vatnumber'}
+        </li>
+        <li>
+            <b>{l s='The rejected numbers' mod='vatnumber'}</b>:
+            {l s='the tab "Rejected numbers" lists every number VIES rejected or that cannot exist because of its format, with customer, company, last order and date. Ask the customer for the correct number, and re-invoice VAT on orders placed without VAT if needed.' mod='vatnumber'}
         </li>
         <li>
             <b>{l s='The manual check' mod='vatnumber'}</b>:
