@@ -103,7 +103,7 @@
         <li>
             <b>{l s='The order' mod='vatnumber'}</b> ({l s='answers: was this order rightfully VAT exempt?' mod='vatnumber'}):
             {l s='open the order under' mod='vatnumber'} <a href="{$vatnumber_orders_link|escape:'html':'UTF-8'}">{l s='Orders' mod='vatnumber'}</a>.
-            {l s='At the bottom, the "VAT exemption" panel shows whether VAT was charged, the number used for this order with a colored status (green = confirmed by VIES, red = rejected, orange = awaiting verification, grey = never checked), when the number was last confirmed valid and the consultation ID of that confirmation as proof. Red comes with a warning to review the order and re-invoice VAT if needed.' mod='vatnumber'}
+            {l s='In the right column, the "VAT exemption" panel shows whether VAT was charged, the number used for this order with a colored status (green = confirmed by VIES, red = rejected, orange = awaiting verification, grey = never checked), when the number was last confirmed valid and the consultation ID of that confirmation as proof. Red comes with a warning to review the order and re-invoice VAT if needed. With "Check now at VIES" you check the number in a popup, without leaving the order.' mod='vatnumber'}
         </li>
         <li>
             <b>{l s='The address' mod='vatnumber'}</b> ({l s='answers: what is the current number?' mod='vatnumber'}):
