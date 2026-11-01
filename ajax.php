@@ -1,6 +1,6 @@
 <?php
 /**
- * Copyright (C) 2017-2024 thirty bees
+ * Copyright (C) 2017-2026 thirty bees
  * Copyright (C) 2007-2016 PrestaShop SA
  *
  * thirty bees is an extension to the PrestaShop software by PrestaShop SA.
@@ -17,7 +17,7 @@
  *
  * @author    thirty bees <modules@thirtybees.com>
  * @author    PrestaShop SA <contact@prestashop.com>
- * @copyright 2017-2024 thirty bees
+ * @copyright 2017-2026 thirty bees
  * @copyright 2007-2016 PrestaShop SA
  * @license   Academic Free License (AFL 3.0)
  * PrestaShop is an internationally registered trademark of PrestaShop SA.
@@ -27,10 +27,13 @@ include(dirname(__FILE__).'/../../config/config.inc.php');
 include(dirname(__FILE__).'/../../init.php');
 include_once(dirname(__FILE__).'/vatnumber.php');
 
+header('Content-Type: text/plain; charset=utf-8');
+header('Cache-Control: no-store');
+
 /** @noinspection PhpUnhandledExceptionInspection */
-if (VatNumber::isApplicable(Tools::getValue('id_country'))) {
-    echo "1";
+if (Configuration::get('VATNUMBER_MANAGEMENT') && VatNumber::isApplicable((int) Tools::getValue('id_country', 0))) {
+    echo '1';
 } else {
-    echo "0";
+    echo '0';
 }
 

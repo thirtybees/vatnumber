@@ -1,4 +1,5 @@
-{**
+<?php
+/**
  * Copyright (C) 2017-2024 thirty bees
  * Copyright (C) 2007-2016 PrestaShop SA
  *
@@ -20,10 +21,15 @@
  * @copyright 2007-2016 PrestaShop SA
  * @license   Academic Free License (AFL 3.0)
  * PrestaShop is an internationally registered trademark of PrestaShop SA.
- *}
+ */
 
-{extends file="helpers/form/form.tpl"}
+header('Expires: Mon, 26 Jul 1997 05:00:00 GMT');
+header('Last-Modified: '.gmdate('D, d M Y H:i:s').' GMT');
 
-{block name="input"}
-    {$smarty.block.parent}
-{/block}
+header('Cache-Control: no-store, no-cache, must-revalidate');
+header('Cache-Control: post-check=0, pre-check=0', false);
+header('Pragma: no-cache');
+
+header('Location: ../');
+
+exit;
