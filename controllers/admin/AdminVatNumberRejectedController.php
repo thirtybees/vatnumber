@@ -118,6 +118,32 @@ class AdminVatNumberRejectedController extends ModuleAdminController
     }
 
     /**
+     * The "Check now at VIES" popup on the order page: checks the VAT number
+     * of one order's invoice address and answers in JSON. Core verifies the
+     * admin token for AJAX calls but not the access rights, so those are
+     * checked here: this page and the orders page must both be viewable.
+     *
+     * @return void
+     * @throws PrestaShopException
+     */
+    public function ajaxProcessCheckVatNumber()
+    {
+        if (!isset($_SERVER['REQUEST_METHOD']) || $_SERVER['REQUEST_METHOD'] !== 'POST') {
+            http_response_code(405);
+            $this->ajaxDie(json_encode(['state' => 'error', 'message' => '']));
+        }
+        $access = Profile::getProfileAccess((int) $this->context->employee->id_profile, (int) Tab::getIdFromClassName('AdminOrders'));
+        if (!$this->viewAccess() || empty($access['view'])) {
+            http_response_code(403);
+            $this->ajaxDie(json_encode(['state' => 'error', 'message' => $this->l('You do not have permission to check VAT numbers of orders.')]));
+        }
+        if (!$this->module instanceof VatNumber) {
+            throw new PrestaShopException('The VAT number check needs the vatnumber module instance');
+        }
+        $this->ajaxDie(json_encode($this->module->checkOrderNumberNow((int) Tools::getValue('id_order'))));
+    }
+
+    /**
      * The list is read-only: no "Add new" button.
      *
      * @return void

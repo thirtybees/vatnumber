@@ -128,7 +128,7 @@ class VatNumber extends TaxManagerModule
     {
         $this->name = 'vatnumber';
         $this->tab = 'billing_invoicing';
-        $this->version = '2.7.14';
+        $this->version = '2.7.15';
         $this->author = 'thirty bees';
         $this->need_instance = true;
 
@@ -173,7 +173,7 @@ class VatNumber extends TaxManagerModule
                 && $this->registerHook('actionObjectAddressValidateController')
                 && $this->registerHook('actionObjectAddressAddBefore')
                 && $this->registerHook('actionObjectAddressUpdateBefore')
-                && $this->registerHook('displayAdminOrder')
+                && $this->registerHook('displayAdminOrderRight')
                 && $this->installTab()
                 && Configuration::updateValue('VATNUMBER_MANAGEMENT', 1)
                 && Configuration::updateValue('VATNUMBER_CHECKING', 1)
@@ -233,10 +233,11 @@ class VatNumber extends TaxManagerModule
     }
 
     /**
-     * Create one admin tab unless it exists. Access rights are granted by
-     * core for the installing employee's profile; without an employee
-     * context (CLI install) the tab is still created and rights can be
-     * granted under Administration > Permissions.
+     * Create one admin tab unless it exists. Core grants a new tab only to
+     * SuperAdmin and the installing employee's profile; every profile that
+     * may view orders gets the same rights here, so the people who handle
+     * orders can also open the VAT pages and use the check on the order
+     * page.
      *
      * @param string $className Admin controller class name.
      * @param int $idParent Parent tab id, -1 for a page without menu entry.
@@ -259,8 +260,61 @@ class VatNumber extends TaxManagerModule
         // Tab::add() returns the result of initAccess(), which is false
         // without an employee context even though the tab row was created.
         $tab->add();
+        if (!$tab->id) {
+            return false;
+        }
 
-        return (bool) $tab->id;
+        return static::copyTabAccess((int) $tab->id, 'AdminOrders');
+    }
+
+    /**
+     * Give every profile the rights it has on another admin page (for
+     * example Orders) on one of the module's pages. Rights a profile already
+     * has on the module page are never lowered.
+     *
+     * @param int $idTab Module tab to grant rights on.
+     * @param string $fromClassName Admin controller whose rights are copied.
+     *
+     * @return bool
+     * @throws PrestaShopException
+     */
+    public static function copyTabAccess(int $idTab, string $fromClassName): bool
+    {
+        $idFrom = (int) Tab::getIdFromClassName($fromClassName);
+        if (!$idFrom || !$idTab) {
+            return false;
+        }
+        $db = Db::getInstance();
+        $source = $db->executeS('SELECT `id_profile`, `view`, `add`, `edit`, `delete` FROM `'._DB_PREFIX_.'access` WHERE `id_tab` = '.$idFrom);
+        $current = $db->executeS('SELECT `id_profile`, `view`, `add`, `edit`, `delete` FROM `'._DB_PREFIX_.'access` WHERE `id_tab` = '.$idTab);
+        if ($source === false || $current === false) {
+            throw new PrestaShopException('Failed to read access rights: '.$db->getMsgError());
+        }
+        $existing = [];
+        foreach ($current as $row) {
+            $existing[(int) $row['id_profile']] = $row;
+        }
+        $rows = [];
+        foreach ($source as $row) {
+            $idProfile = (int) $row['id_profile'];
+            $old = isset($existing[$idProfile]) ? $existing[$idProfile] : ['view' => 0, 'add' => 0, 'edit' => 0, 'delete' => 0];
+            $rows[] = [
+                'id_profile' => $idProfile,
+                'id_tab'     => $idTab,
+                'view'       => max((int) $row['view'], (int) $old['view']),
+                'add'        => max((int) $row['add'], (int) $old['add']),
+                'edit'       => max((int) $row['edit'], (int) $old['edit']),
+                'delete'     => max((int) $row['delete'], (int) $old['delete']),
+            ];
+        }
+        if (!$rows) {
+            return true;
+        }
+        if (!$db->insert('access', $rows, false, true, Db::REPLACE)) {
+            throw new PrestaShopException('Failed to grant access rights on tab '.$idTab.': '.$db->getMsgError());
+        }
+
+        return true;
     }
 
     /**
@@ -638,17 +692,17 @@ class VatNumber extends TaxManagerModule
     }
 
     /**
-     * Panel on the back office order page: the VAT number this order was
-     * placed with, its current verification status, and the stored proof.
-     * Answers "was this order rightfully VAT exempt?" without leaving the
-     * order.
+     * Panel in the right column of the back office order page: the VAT
+     * number this order was placed with, its current verification status,
+     * the stored proof, and a button that checks the number at VIES in a
+     * popup without leaving the order.
      *
      * @param array $params Hook parameters, contains 'id_order'.
      *
      * @return string
      * @throws PrestaShopException
      */
-    public function hookDisplayAdminOrder($params)
+    public function hookDisplayAdminOrderRight($params)
     {
         $idOrder = (int) (isset($params['id_order']) ? $params['id_order'] : 0);
         try {
@@ -669,78 +723,67 @@ class VatNumber extends TaxManagerModule
         } catch (Exception $e) {
             static::log('The VAT panel of order %d could not be shown: %s', 3, $idOrder, $e->getMessage());
 
-            return '<div class="row"><div class="col-lg-12"><div class="panel"><h3><i class="icon icon-euro"></i> '.$this->l('VAT exemption').'</h3>'
-                .'<div class="alert alert-danger">'.sprintf($this->l('Could not display the VAT status: %s'), Tools::safeOutput($e->getMessage())).'</div></div></div></div>';
+            return '<div class="panel"><h3><i class="icon icon-euro"></i> '.$this->l('VAT exemption').'</h3>'
+                .'<div class="alert alert-danger">'.sprintf($this->l('Could not display the VAT status: %s'), Tools::safeOutput($e->getMessage())).'</div></div>';
         }
     }
 
     /**
-     * Build the order page VAT panel.
+     * Build the order page VAT panel from its template.
      *
      * @param Order $order
      * @param string $vatNumber Trimmed VAT number of the invoice address.
      *
      * @return string
      * @throws PrestaShopException
+     * @throws SmartyException
      */
     protected function renderOrderVatPanel(Order $order, string $vatNumber): string
     {
-        $vatCharged = ((float) $order->total_paid_tax_incl - (float) $order->total_paid_tax_excl) > static::VAT_CHARGED_EPSILON;
+        $legacy = VatNumberCheck::isLegacySentinel($vatNumber);
+        $normalized = $legacy ? '' : VatNumberCheck::normalize($vatNumber);
+        $check = $legacy ? null : VatNumberCheck::findByNumber($normalized);
 
-        $html = '<div class="row"><div class="col-lg-12"><div class="panel"><h3><i class="icon icon-euro"></i> '.$this->l('VAT exemption').'</h3>';
-        $html .= '<p>'.($vatCharged
-            ? $this->l('VAT was charged on this order.')
-            : $this->l('No VAT was charged on this order (exemption applied).')).'</p>';
+        $this->context->controller->addJS($this->_path.'views/js/admin_order.js');
+        $this->context->smarty->assign([
+            'vatnumber_vat_charged'  => ((float) $order->total_paid_tax_incl - (float) $order->total_paid_tax_excl) > static::VAT_CHARGED_EPSILON,
+            'vatnumber_legacy'       => $legacy,
+            'vatnumber_number'       => $normalized,
+            'vatnumber_status'       => $check ? (string) $check->status : '',
+            'vatnumber_badge'        => static::badgeFor($check ? (string) $check->status : null),
+            'vatnumber_status_date'  => $check ? (string) $check->date_upd : '',
+            'vatnumber_trader_name'  => $check ? (string) $check->trader_name : '',
+            'vatnumber_valid_date'   => $check && $check->valid_date ? (string) $check->valid_date : '',
+            'vatnumber_valid_proof'  => $check ? (string) $check->valid_request_id : '',
+            'vatnumber_check_url'    => $this->context->link->getAdminLink('AdminVatNumberRejected', true),
+            'vatnumber_id_order'     => (int) $order->id,
+        ]);
 
-        if (VatNumberCheck::isLegacySentinel($vatNumber)) {
-            $html .= '<p>'.$this->l('This order was placed with the checkbox exemption of module versions before 2.7.4; there is no VAT number to verify.').'</p>';
-            $html .= '</div></div></div>';
+        return $this->context->smarty->fetch($this->local_path.'views/templates/hook/order_panel.tpl');
+    }
 
-            return $html;
+    /**
+     * Label colour and text for a verification status, shared by the order
+     * panel and the popup check.
+     *
+     * @param string|null $status One of the VatNumberCheck::STATUS_* constants,
+     *                            null when the number was never checked.
+     *
+     * @return array{class: string, label: string}
+     */
+    public static function badgeFor(?string $status): array
+    {
+        if ($status === VatNumberCheck::STATUS_VALID) {
+            return ['class' => 'label-success', 'label' => static::translate('Valid, confirmed by VIES')];
+        }
+        if ($status === VatNumberCheck::STATUS_INVALID) {
+            return ['class' => 'label-danger', 'label' => static::translate('Invalid, rejected by VIES')];
+        }
+        if ($status === VatNumberCheck::STATUS_UNVERIFIED) {
+            return ['class' => 'label-warning', 'label' => static::translate('Awaiting verification')];
         }
 
-        $normalized = VatNumberCheck::normalize($vatNumber);
-        $check = VatNumberCheck::findByNumber($normalized);
-
-        if (!$check) {
-            $badge = '<span class="label label-default">'.$this->l('Never checked').'</span>';
-        } elseif ($check->status === VatNumberCheck::STATUS_VALID) {
-            $badge = '<span class="label label-success">'.$this->l('Valid, confirmed by VIES').'</span>';
-        } elseif ($check->status === VatNumberCheck::STATUS_INVALID) {
-            $badge = '<span class="label label-danger">'.$this->l('Invalid, rejected by VIES').'</span>';
-        } else {
-            $badge = '<span class="label label-warning">'.$this->l('Awaiting verification').'</span>';
-        }
-
-        $html .= '<p><b>'.$this->l('VAT number on this order:').'</b> '.Tools::safeOutput($normalized).' '.$badge.'</p>';
-
-        if ($check) {
-            $html .= '<p><b>'.$this->l('Current status since:').'</b> '.Tools::safeOutput($check->date_upd).'</p>';
-            if ($check->trader_name !== '') {
-                $html .= '<p><b>'.$this->l('Registered trader:').'</b> '.Tools::safeOutput($check->trader_name).'</p>';
-            }
-            if ($check->valid_date) {
-                $html .= '<p><b>'.$this->l('Last confirmed valid by VIES:').'</b> '.Tools::safeOutput($check->valid_date);
-                if ($check->valid_request_id !== '') {
-                    $html .= ' - '.$this->l('consultation ID (proof):').' '.Tools::safeOutput($check->valid_request_id);
-                }
-                $html .= '</p>';
-            }
-            if ($check->status === VatNumberCheck::STATUS_INVALID) {
-                $html .= '<div class="alert alert-danger">'.$this->l('VIES rejected this number. If this order was exempted, review it and re-invoice the VAT if needed.').'</div>';
-            } elseif ($check->status === VatNumberCheck::STATUS_UNVERIFIED) {
-                $html .= '<div class="alert alert-warning">'.$this->l('This number is still awaiting verification. The scheduled task will verify it; you can also check it now with the validation tool.').'</div>';
-            }
-            $html .= '<p class="help-block">'.$this->l('This shows the current state of the number. Orders keep their own VAT totals; a later rejection does not change an invoice that was already issued.').'</p>';
-        } else {
-            $html .= '<p>'.$this->l('This number has never been checked against VIES.').'</p>';
-        }
-
-        $configLink = $this->context->link->getAdminLink('AdminModules', true).'&configure='.$this->name;
-        $html .= '<p><a href="'.Tools::safeOutput($configLink).'">'.$this->l('Open the module configuration page to check this number by hand.').'</a></p>';
-        $html .= '</div></div></div>';
-
-        return $html;
+        return ['class' => 'label-default', 'label' => static::translate('Never checked')];
     }
 
     /**
@@ -2099,48 +2142,111 @@ class VatNumber extends TaxManagerModule
 
     /**
      * Run the manual check from the module configuration page and build the
-     * result HTML. Performs a live VIES request and stores the result in the
-     * local cache, like a front office check would.
+     * result HTML.
      *
      * @return string
      * @throws PrestaShopException
      */
     protected function processVatNumberCheck(): string
     {
-        $vatnumber = VatNumberCheck::normalize(static::getStringValue('CHECK_VATNUMBER'));
-        $shapeError = static::checkNumberShape($vatnumber);
-        if ($shapeError !== null) {
-            return '<div class="alert alert-danger">'.$shapeError.'</div>';
+        $result = $this->checkNumberNow(VatNumberCheck::normalize(static::getStringValue('CHECK_VATNUMBER')));
+        $message = $result['message'];
+        switch ($result['state']) {
+            case 'valid':
+                $ret = '<div class="alert alert-success">'.$message.'</div>';
+                $ret .= '<div class="well">';
+                $ret .= '<b>'.$this->l('Trader name').':</b>&nbsp;'.Tools::safeOutput($result['trader_name']).'<br/>';
+                $ret .= '<b>'.$this->l('Trader address').':</b>&nbsp;'.Tools::safeOutput($result['trader_address']).'<br/>';
+                if ($result['note'] !== '') {
+                    $ret .= '<i>'.$result['note'].'</i><br/>';
+                }
+                $ret .= '<b>'.$this->l('VIES consultation ID').':</b>&nbsp;'.Tools::safeOutput($result['request_id'] !== '' ? $result['request_id'] : $this->l('none - set your own VAT number in the settings to receive consultation IDs'));
+                $ret .= '</div>';
+
+                return $ret;
+            case 'invalid':
+                $ret = '<div class="alert alert-warning">'.$message.'</div>';
+                if ($result['cleared']) {
+                    $ret .= '<div class="alert alert-info">'.sprintf($this->l('The number was removed from %d customer address(es), see the shop log.'), $result['cleared']).'</div>';
+                }
+
+                return $ret;
+            case 'unavailable':
+                return '<div class="alert alert-warning">'.$message.'</div>';
+            default:
+                return '<div class="alert alert-danger">'.$message.'</div>';
         }
-        $prefix = substr($vatnumber, 0, 2);
+    }
+
+    /**
+     * Check the VAT number of an order's invoice address at VIES right now,
+     * for the popup on the order page. The number is read from the order,
+     * never taken from the request.
+     *
+     * @param int $idOrder
+     *
+     * @return array{state: string, message: string, trader_name: string, trader_address: string, request_id: string, note: string, cleared: int, badge: array{class: string, label: string}}
+     * @throws PrestaShopException
+     */
+    public function checkOrderNumberNow(int $idOrder): array
+    {
+        $info = static::getOrderVatInfo(new Order($idOrder));
+        if ($info['vat_number'] === '') {
+            $result = $this->checkResult('error', $this->l('This order has no VAT number to check.'));
+        } else {
+            $result = $this->checkNumberNow($info['vat_number']);
+        }
+        $result['badge'] = static::badgeFor($info['vat_number'] === '' ? null : VatNumberCheck::getStatus($info['vat_number']));
+
+        return $result;
+    }
+
+    /**
+     * Ask VIES about one number now and store the answer, like a check on
+     * address save would. Shared by the manual check on the configuration
+     * page and the popup on the order page.
+     *
+     * Messages are translated and HTML escaped; trader name, address and
+     * request id are raw values the caller escapes.
+     *
+     * @param string $normalized Normalized number including prefix.
+     *
+     * @return array{state: string, message: string, trader_name: string, trader_address: string, request_id: string, note: string, cleared: int}
+     *         state: valid, invalid, unavailable (VIES busy or down), error
+     *         (impossible format or failure).
+     * @throws PrestaShopException
+     */
+    public function checkNumberNow(string $normalized): array
+    {
+        $shapeError = static::checkNumberShape($normalized);
+        if ($shapeError !== null) {
+            return $this->checkResult('error', $shapeError);
+        }
+        $prefix = substr($normalized, 0, 2);
         try {
-            $res = VatNumberViesClient::checkVat($prefix, substr($vatnumber, 2), static::getRequester());
-            $linked = VatNumberCheck::findPrimaryAddress($vatnumber);
+            $res = VatNumberViesClient::checkVat($prefix, substr($normalized, 2), static::getRequester());
+            $linked = VatNumberCheck::findPrimaryAddress($normalized);
             $idAddress = $linked ? $linked['id_address'] : 0;
             $idCustomer = $linked ? $linked['id_customer'] : 0;
             if ($res['valid']) {
-                VatNumberCheck::recordResult($vatnumber, $prefix, VatNumberCheck::STATUS_VALID, VatNumberCheck::SOURCE_VIES, $res['requestIdentifier'], $res['name'], $res['address'], $idAddress, $idCustomer);
-                $ret = '<div class="alert alert-success">'.sprintf($this->l('%s is a valid VAT number'), $vatnumber).'</div>';
-                $ret .= '<div class="well">';
-                $ret .= '<b>'.$this->l('Trader name').':</b>&nbsp;'.Tools::safeOutput($res['name']).'<br/>';
-                $ret .= '<b>'.$this->l('Trader address').':</b>&nbsp;'.Tools::safeOutput($res['address']).'<br/>';
+                VatNumberCheck::recordResult($normalized, $prefix, VatNumberCheck::STATUS_VALID, VatNumberCheck::SOURCE_VIES, $res['requestIdentifier'], $res['name'], $res['address'], $idAddress, $idCustomer);
+                $result = $this->checkResult('valid', sprintf($this->l('%s is a valid VAT number'), $normalized));
+                $result['trader_name'] = $res['name'];
+                $result['trader_address'] = $res['address'];
+                $result['request_id'] = $res['requestIdentifier'];
                 if ($res['name'] === '' && $res['address'] === '') {
-                    $ret .= '<i>'.$this->l('Some countries (for example Germany) do not disclose trader name and address through VIES. The number is valid all the same.').'</i><br/>';
+                    $result['note'] = $this->l('Some countries (for example Germany) do not disclose trader name and address through VIES. The number is valid all the same.');
                 }
-                $ret .= '<b>'.$this->l('VIES consultation ID').':</b>&nbsp;'.Tools::safeOutput($res['requestIdentifier'] !== '' ? $res['requestIdentifier'] : $this->l('none - set your own VAT number in the settings to receive consultation IDs'));
-                $ret .= '</div>';
-                return $ret;
+
+                return $result;
             }
-            VatNumberCheck::recordResult($vatnumber, $prefix, VatNumberCheck::STATUS_INVALID, VatNumberCheck::SOURCE_VIES, $res['requestIdentifier'], '', '', $idAddress, $idCustomer);
-            $ret = '<div class="alert alert-warning">'.sprintf($this->l('%s is NOT a valid VAT number'), $vatnumber).'</div>';
+            VatNumberCheck::recordResult($normalized, $prefix, VatNumberCheck::STATUS_INVALID, VatNumberCheck::SOURCE_VIES, $res['requestIdentifier'], '', '', $idAddress, $idCustomer);
+            $result = $this->checkResult('invalid', sprintf($this->l('%s is NOT a valid VAT number'), $normalized));
             if (Configuration::get('VATNUMBER_CLEAR_REJECTED')) {
-                $cleared = static::clearRejectedNumber($vatnumber);
-                if ($cleared) {
-                    $ret .= '<div class="alert alert-info">'.sprintf($this->l('The number was removed from %d customer address(es), see the shop log.'), $cleared).'</div>';
-                }
+                $result['cleared'] = static::clearRejectedNumber($normalized);
             }
 
-            return $ret;
+            return $result;
         } catch (VatNumberViesUnavailableException $e) {
             $country = Tools::safeOutput($this->countryNameForPrefix($prefix));
             if ($e->isBusy()) {
@@ -2153,11 +2259,32 @@ class VatNumber extends TaxManagerModule
                 $message = sprintf($this->l('VIES could not be reached (%s). Try again later.'), Tools::safeOutput($e->getMessage()));
             }
 
-            return '<div class="alert alert-warning">'.$message.'</div>';
+            return $this->checkResult('unavailable', $message);
         } catch (Exception $e) {
-            static::log('The manual check of %s failed: %s', 3, $vatnumber, $e->getMessage());
+            static::log('The manual check of %s failed: %s', 3, $normalized, $e->getMessage());
 
-            return '<div class="alert alert-danger">'.sprintf($this->l('VAT number check failed: %s'), Tools::safeOutput($e->getMessage())).'</div>';
+            return $this->checkResult('error', sprintf($this->l('VAT number check failed: %s'), Tools::safeOutput($e->getMessage())));
         }
+    }
+
+    /**
+     * Empty result of checkNumberNow() with a state and message.
+     *
+     * @param string $state
+     * @param string $message Translated, HTML escaped.
+     *
+     * @return array{state: string, message: string, trader_name: string, trader_address: string, request_id: string, note: string, cleared: int}
+     */
+    protected function checkResult(string $state, string $message): array
+    {
+        return [
+            'state'          => $state,
+            'message'        => $message,
+            'trader_name'    => '',
+            'trader_address' => '',
+            'request_id'     => '',
+            'note'           => '',
+            'cleared'        => 0,
+        ];
     }
 }
